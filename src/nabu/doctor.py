@@ -1,4 +1,4 @@
-"""Machine report (FR-1.1). Detects, never installs. GPU, OCR and model tier land in M1/M4."""
+"""Machine report (FR-1.1). Detects, never installs. GPU and OCR detection land in M1/M4."""
 
 from __future__ import annotations
 
@@ -8,7 +8,10 @@ import shutil
 import sys
 
 from nabu.config import Config
-from nabu.model.ollama import ModelClient
+from nabu.errors import ModelUnavailable
+from nabu.model.profiles import resolve_profile
+from nabu.model.runtime import make_runtime, same_model
+from nabu.model.tiers import recommend
 from nabu.store.paths import StorePaths
 
 
@@ -34,23 +37,38 @@ def _total_ram_bytes() -> int | None:
         return None
 
 
+def total_ram_gb() -> float | None:
+    ram = _total_ram_bytes()
+    return round(ram / 2**30, 1) if ram else None
+
+
 def report(cfg: Config, paths: StorePaths) -> dict:
     disk_root = paths.data_dir if paths.data_dir.exists() else paths.data_dir.anchor or "/"
-    client = ModelClient(cfg, timeout_s=3.0)
+    runtime = make_runtime(cfg, timeout_s=3.0)
     try:
-        present = client.available()
-        models = client.models() if present else []
+        present = runtime.available()
+        try:
+            models = runtime.models() if present else []
+        except ModelUnavailable:
+            models = []
     finally:
-        client.close()
-    ram = _total_ram_bytes()
+        runtime.close()
+    ram_gb = total_ram_gb()
+    tier = recommend(ram_gb)
     return {
         "os": platform.system(),
         "os_version": platform.release(),
         "arch": platform.machine(),
         "cpu_cores": os.cpu_count(),
-        "ram_total_gb": round(ram / 2**30, 1) if ram else None,
+        "ram_total_gb": ram_gb,
         "disk_free_gb": round(shutil.disk_usage(disk_root).free / 2**30, 1),
-        "runtime": {"endpoint": cfg.model_endpoint, "present": present, "models": models},
+        "runtime": {"kind": cfg.model_runtime, "endpoint": cfg.model_endpoint,
+                    "present": present, "models": models},
         "configured_model": cfg.model,
+        "model_installed": bool(cfg.model) and any(same_model(m, cfg.model) for m in models),
+        "model_profile": resolve_profile(cfg.model, cfg.model_profile, cfg.model_profiles).name
+                         if cfg.model else None,
+        "recommended_model": tier.model,
+        "recommended_for": tier.hardware,
         "store": {"config": str(paths.config_file), "data": str(paths.data_dir)},
     }

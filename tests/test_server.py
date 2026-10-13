@@ -19,7 +19,9 @@ def app_and_token(tmp_path):
 @pytest.fixture
 def client(app_and_token):
     app, _ = app_and_token
-    return TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
+    c = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
+    c.get("/")  # open the window, as the browser does; this claims it
+    return c
 
 
 def test_index_embeds_token_and_security_headers(client, app_and_token):
@@ -36,7 +38,7 @@ def test_index_embeds_token_and_security_headers(client, app_and_token):
 
 def test_api_requires_token_header(client, app_and_token):
     _, token = app_and_token
-    assert client.get("/api/health").status_code == 401
+    assert client.get("/api/health").status_code == 401  # cookie alone is not enough
     assert client.get("/api/health", headers={"x-nabu-token": "wrong"}).status_code == 401
     r = client.get("/api/health", headers={"x-nabu-token": token})
     assert r.status_code == 200 and r.json()["ok"]
@@ -53,6 +55,7 @@ def test_wrong_host_refused(app_and_token, host):  # DNS rebinding defence (API-
     c = TestClient(app, base_url=f"http://{host}")
     r = c.get("/api/health", headers={"x-nabu-token": token})
     assert r.status_code == 421
+    assert c.get("/").status_code == 421  # the page and its token are refused too
     assert r.headers["cache-control"] == "no-store"
 
 
@@ -73,3 +76,35 @@ def test_ui_not_built_message(tmp_path):
     app, _ = create_app(PORT, ui_dist=tmp_path / "missing")
     r = TestClient(app, base_url=f"http://localhost:{PORT}").get("/")
     assert "not built" in r.text
+
+
+def test_first_browser_claims_the_window(app_and_token):
+    app, token = app_and_token
+    first = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
+    r = first.get("/")
+    assert r.status_code == 200 and "httponly" in r.headers["set-cookie"].lower()
+    assert "samesite=strict" in r.headers["set-cookie"].lower()
+    assert first.get("/").status_code == 200  # a reload keeps working
+    other = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")  # another program or user
+    r = other.get("/")
+    assert r.status_code == 409 and token not in r.text
+
+
+def test_api_needs_the_cookie_as_well_as_the_token(app_and_token):
+    app, token = app_and_token
+    TestClient(app, base_url=f"http://127.0.0.1:{PORT}").get("/")  # the window is claimed
+    stranger = TestClient(app, base_url=f"http://127.0.0.1:{PORT}")
+    assert stranger.get("/api/health", headers={"x-nabu-token": token}).status_code == 401
+
+
+def test_non_ascii_token_is_refused_not_crashed(client):
+    client.get("/")
+    r = client.get("/api/health", headers={"x-nabu-token": "tök".encode("latin-1")})
+    assert r.status_code == 401
+
+
+def test_websocket_refused(client):
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/api/ws"):
+        pass

@@ -15,7 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 # Reading stack for M1. Kept optional until M0 confirms sizes against NFR-2.
 # Licences checked: pypdfium2 (Apache-2.0/BSD-3), pdfplumber (MIT), rapidocr (Apache-2.0),
-# python-docx/openpyxl/python-pptx (MIT). Do NOT add PyMuPDF (AGPL-3.0).
+# python-docx/openpyxl/python-pptx (MIT), pillow (MIT-CMU). Do NOT add PyMuPDF (AGPL-3.0).
 read = [
     "pypdfium2>=4.30",
     "pdfplumber>=0.11",
@@ -23,6 +23,7 @@ read = [
     "openpyxl>=3.1",
     "python-pptx>=1.0",
     "rapidocr-onnxruntime>=1.3",
+    "pillow>=10.1",  # page image resize/crop for the model (MIT-CMU)
 ]
 
 [project.scripts]
@@ -30,6 +31,7 @@ nabu = "nabu.cli:main"
 
 [dependency-groups]
 dev = [
+    "pillow>=10.1",  # model-layer tests build page images
     "pytest>=8.2",
     "jsonschema>=4.22",
     "ruff>=0.6",

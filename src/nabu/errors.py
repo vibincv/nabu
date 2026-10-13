@@ -40,6 +40,10 @@ class ModelUnavailable(NabuError):
     pass
 
 
+class ModelNotFound(ModelUnavailable):
+    """The runtime answers but the configured model is not installed (FR-10.4)."""
+
+
 class ModelOutputInvalid(NabuError):
     pass
 

@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import stat
 from importlib.resources import files
 
 import jsonschema
@@ -43,3 +45,9 @@ def test_logs_never_contain_exception_text_or_tracebacks(tmp_path):
 def test_working_result_fixture_is_synthetic(fixtures_dir):
     wr = json.loads((fixtures_dir / "working_result.sample.json").read_text())
     assert wr["document"]["source_file"].startswith("synthetic_")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions")
+def test_log_file_is_user_only(tmp_path):
+    configure_logging(tmp_path / "logs")
+    assert stat.S_IMODE((tmp_path / "logs" / "nabu.log").stat().st_mode) == 0o600

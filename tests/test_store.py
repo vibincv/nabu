@@ -115,3 +115,86 @@ def test_session_close_releases_data(store):
     store.end_session(s)
     assert s.upload is None and not s.page_images and not s.values()
     assert "PDF" not in repr(s)
+
+
+@pytest.mark.parametrize("label", [
+    "Ref. RE 2026 0412",        # punctuation replaced by spaces
+    "RE20260412",               # punctuation dropped
+    "Datum 01/10/2026",         # date separators changed
+    "beispiel burobedarf gmbh",  # accents dropped
+])
+def test_value_with_changed_punctuation_or_accents_refused(store, session, label):
+    with pytest.raises(ValueWriteRefused):
+        store.save_template(template(label=label), session)
+
+
+def test_value_in_format_slug_refused(store, session):
+    t = template()
+    t["template"]["format"]["id"] = "beispiel-burobedarf-gmbh"
+    with pytest.raises(ValueWriteRefused) as e:
+        store.save_template(t, session)
+    assert "id" in e.value.message
+
+
+def test_value_in_field_key_refused(store, session):
+    t = template()
+    t["fields"][0]["key"] = "re_2026_0412"
+    with pytest.raises(ValueWriteRefused):
+        store.save_template(t, session)
+
+
+@pytest.mark.parametrize("key,text", [
+    ("lang", "Beispiel Bürobedarf GmbH"),
+    ("status", "RE-2026-0412"),
+    ("created_at", "RE-2026-0412"),
+])
+def test_fixed_shape_key_with_free_text_is_checked(store, session, key, text):
+    with pytest.raises(ValueWriteRefused):
+        store.remember_translation({"id": "t1", "lang": "de", "term": "Rechnungsnr.",
+                                    "english": "Invoice number", key: text}, session)
+
+
+def test_timestamp_containing_a_date_value_is_allowed(store, session):
+    # A timestamp has a fixed shape; a document dated the same day must not block the save.
+    session.register_value("2026-10-01")
+    t = template()
+    t["template"]["created_at"] = "2026-10-01T09:00:00Z"
+    store.save_template(t, session)
+
+
+def test_other_template_on_same_path_refused(store, session):
+    store.save_template(template(version=1), session)
+    other = template(version=2)
+    other["template"]["id"] = "tpl_someone_else"
+    with pytest.raises(NabuError, match="already uses"):
+        store.save_template(other, session)
+
+
+@pytest.mark.parametrize("version", [1, 0, "2"])
+def test_version_must_increase(store, session, version):
+    store.save_template(template(version=1), session)
+    with pytest.raises(NabuError, match="version"):
+        store.save_template(template(version=version), session)
+
+
+def test_damaged_template_is_named_not_shown(store, session):
+    p = store.save_template(template(), session)
+    p.write_text("{ RE-2026-0412 broken", encoding="utf-8")
+    with pytest.raises(NabuError) as e:
+        store.templates()
+    assert p.name in e.value.message and "RE-2026" not in e.value.message
+
+
+def test_damaged_translation_memory_is_named(store, session):
+    store.paths.translations_file.parent.mkdir(parents=True, exist_ok=True)
+    store.paths.translations_file.write_text("[1, 2", encoding="utf-8")
+    with pytest.raises(NabuError, match="translation memory is damaged"):
+        store.translations()
+
+
+def test_config_saved_only_when_valid(store):
+    store.save_config({"model": "qwen3.5:4b"})
+    assert store.config_data() == {"model": "qwen3.5:4b"}
+    with pytest.raises(NabuError):
+        store.save_config({"model_endpoint": "http://10.0.0.5:11434"})
+    assert store.config_data() == {"model": "qwen3.5:4b"}

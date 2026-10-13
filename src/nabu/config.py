@@ -9,11 +9,13 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from nabu.errors import ConfigError
+from nabu.model.profiles import ModelProfile
 
 LOOPBACK_NAMES = frozenset({"localhost"})
 
@@ -44,10 +46,14 @@ def parse_endpoint(url: str) -> tuple[str, int]:
 
 
 class Config(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())  # model_* keys are ours
 
-    model: str | None = None  # set by the installer; never hard-coded (FR-10.2)
+    model: str | None = None  # set by the installer or `nabu models use`; never hard-coded (FR-10.2)
     model_endpoint: str = "http://127.0.0.1:11434"
+    model_runtime: Literal["ollama", "openai_compat"] = "ollama"
+    model_profile: str = "auto"  # "auto" picks by model name (nabu.model.profiles)
+    model_profiles: list[ModelProfile] = Field(default_factory=list)  # user-added profiles
+    model_timeout_s: float = Field(default=300.0, gt=0, le=3600)
     dpi: int = 200
     max_image_edge_px: int = 1500
     link_threshold: float = 0.75  # provisional, FR-5.3
@@ -88,11 +94,19 @@ def load_config(path: Path | None, overrides: dict | None = None) -> Config:
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
             raise ConfigError(f"config file is not valid JSON: {path.name} (line {e.lineno})") from None
-    env_map = {"NABU_MODEL": "model", "NABU_MODEL_ENDPOINT": "model_endpoint"}
+    env_map = {"NABU_MODEL": "model", "NABU_MODEL_ENDPOINT": "model_endpoint",
+               "NABU_MODEL_RUNTIME": "model_runtime"}
     for env, key in env_map.items():
         if os.environ.get(env):
             data[key] = os.environ[env]
     data.update({k: v for k, v in (overrides or {}).items() if v is not None})
+    return parse_config(data)
+
+
+def parse_config(data: dict) -> Config:
+    """Validate config data; every failure is a ConfigError with a one-line message."""
+    if not isinstance(data, dict):
+        raise ConfigError("config file must hold a JSON object")
     try:
         return Config(**data)
     except ConfigError:

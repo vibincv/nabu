@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -58,10 +59,15 @@ def configure_logging(log_dir: Path | None, verbose: bool = False) -> None:
     root.addHandler(stream)
 
     if log_dir is not None:
-        from nabu.store.paths import secure_mkdir
+        from nabu.store.paths import FILE_MODE, secure_mkdir
 
         secure_mkdir(log_dir)
-        fh = logging.FileHandler(log_dir / "nabu.log", encoding="utf-8")
+        log_file = log_dir / "nabu.log"
+        # Create it user-only before logging opens it (FR-11.7); the default umask gives 0644.
+        os.close(os.open(log_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND, FILE_MODE))
+        if os.name == "posix":
+            os.chmod(log_file, FILE_MODE)
+        fh = logging.FileHandler(log_file, encoding="utf-8")
         fh.setFormatter(fmt)
         root.addHandler(fh)
 

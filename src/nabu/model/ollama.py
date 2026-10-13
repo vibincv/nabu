@@ -1,67 +1,79 @@
-"""HTTP client for the local model runtime (FR-10). The only code that opens outbound HTTP.
-
-Rules enforced here:
-- The endpoint is a loopback address (validated in Config) and the client refuses any URL that
-  is not under that exact scheme://host:port (AR-3).
-- Redirects are never followed (a redirect could point off the machine).
-- Environment proxies are ignored (trust_env=False): HTTP_PROXY must not route page images
-  through another machine.
-- Request and response bodies are never logged (FR-11.5).
-"""
+"""Ollama runtime adapter (FR-10). API: /api/tags, /api/chat, /api/pull."""
 
 from __future__ import annotations
 
-import logging
-import time
+import base64
+from collections.abc import Iterator
 
 import httpx
 
 from nabu.config import Config
-from nabu.errors import ModelUnavailable
+from nabu.errors import ModelNotFound, ModelUnavailable
+from nabu.model.http import LoopbackHttp, error_text
+from nabu.model.runtime import ChatRequest, PullProgress
 
-log = logging.getLogger("nabu.model")
 
-
-class ModelClient:
-    def __init__(self, cfg: Config, timeout_s: float = 300.0) -> None:
-        self.cfg = cfg
-        host, port = cfg.endpoint  # raises if not loopback
-        self._base = cfg.model_endpoint.rstrip("/")
-        self._host, self._port = host, port
-        self._http = httpx.Client(
-            base_url=self._base,
-            timeout=httpx.Timeout(timeout_s, connect=3.0),
-            follow_redirects=False,
-            trust_env=False,
+def raise_for_model_error(r: httpx.Response, model: str) -> None:
+    """Distinct message with the fix for each failure (FR-10.4). The runtime's own error text
+    is only matched against, never shown or logged: it could echo part of a prompt."""
+    if r.status_code < 300:
+        return
+    err = error_text(r)
+    if r.status_code == 404 or "not found" in err:
+        raise ModelNotFound(f"the model {model} is not installed. Run: nabu models pull {model}")
+    if "memory" in err:
+        raise ModelUnavailable(
+            f"the model {model} ran out of memory. Close other programs, or use a smaller model: "
+            "run `nabu models list` to see the options."
         )
+    raise ModelUnavailable(f"the local model runtime returned an error (HTTP {r.status_code})")
+
+
+class OllamaRuntime:
+    name = "ollama"
+
+    def __init__(self, cfg: Config, timeout_s: float) -> None:
+        self._http = LoopbackHttp(cfg, timeout_s)
 
     def close(self) -> None:
         self._http.close()
 
-    def _get(self, path: str) -> httpx.Response:
-        t0 = time.monotonic()
-        try:
-            r = self._http.get(path)
-        except httpx.ConnectError:
-            raise ModelUnavailable(
-                f"the local model runtime is not answering at {self._host}:{self._port}"
-            ) from None
-        except httpx.TimeoutException:
-            raise ModelUnavailable("the local model runtime timed out") from None
-        log.debug("model GET %s -> %s in %.0f ms", path, r.status_code, (time.monotonic() - t0) * 1000)
-        return r
-
     def available(self) -> bool:
-        """True if the runtime answers a health call (FR-1.7)."""
         try:
-            return self._get("/api/tags").status_code == 200
+            return self._http.request("GET", "/api/tags").status_code == 200
         except ModelUnavailable:
             return False
 
     def models(self) -> list[str]:
-        r = self._get("/api/tags")
-        r.raise_for_status()
+        r = self._http.request("GET", "/api/tags")
+        if r.status_code != 200:
+            raise ModelUnavailable(f"the local model runtime returned an error (HTTP {r.status_code})")
         return [m.get("name", "") for m in r.json().get("models", [])]
 
-    # M1: discover_page, reread_crop, translate (FRD 10.3, 10.4). Each must validate the JSON
-    # response against a schema, make one repair attempt, and never log the raw body.
+    def chat(self, req: ChatRequest) -> str:
+        user: dict = {"role": "user", "content": req.user}
+        if req.images:
+            user["images"] = [base64.b64encode(i).decode("ascii") for i in req.images]
+        body: dict = {
+            "model": req.model,
+            "stream": False,
+            "messages": [{"role": "system", "content": req.system}, user],
+            "options": {"temperature": req.temperature},
+        }
+        if req.schema is not None:
+            body["format"] = req.schema
+        if req.disable_thinking:
+            body["think"] = False
+        r = self._http.request("POST", "/api/chat", body)
+        raise_for_model_error(r, req.model)
+        content = (r.json().get("message") or {}).get("content")
+        return content if isinstance(content, str) else ""
+
+    def pull(self, model: str) -> Iterator[PullProgress]:
+        for line in self._http.stream_json_lines("POST", "/api/pull", {"model": model, "stream": True}):
+            if "_status" in line or "error" in line:
+                if "not found" in str(line.get("_error") or line.get("error") or "").lower():
+                    raise ModelNotFound(f"the model {model} does not exist in the model library")
+                raise ModelUnavailable(f"downloading {model} failed")
+            yield PullProgress(status=str(line.get("status", "")),
+                               completed=line.get("completed"), total=line.get("total"))

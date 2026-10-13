@@ -32,9 +32,44 @@ def _dump(obj: Any) -> bytes:
     return (json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=False) + "\n").encode("utf-8")
 
 
+def _load_template(p: Path) -> dict:
+    """Read a template file. A damaged file is named, never shown (it is the user's data)."""
+    try:
+        t = json.loads(p.read_text(encoding="utf-8"))
+        header = t["template"]
+        if not isinstance(header, dict) or not isinstance(header.get("version"), int):
+            raise ValueError
+    except (OSError, ValueError, KeyError, TypeError):
+        raise NabuError(f"template file is damaged: {p.name}. Delete it or restore it from "
+                        "versions/.") from None
+    return t
+
+
 class Store:
     def __init__(self, paths: StorePaths | None = None) -> None:
         self.paths = paths or default_paths()
+
+    # ---- config (DD-5) -----------------------------------------------------------------------
+    def config_data(self) -> dict:
+        """The raw config file, so an update keeps keys the caller does not touch."""
+        p = self.paths.config_file
+        if not p.exists():
+            return {}
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            raise NabuError(f"config file is not valid JSON: {p.name}") from None
+        if not isinstance(data, dict):
+            raise NabuError(f"config file is not a JSON object: {p.name}")
+        return data
+
+    def save_config(self, data: dict) -> Path:
+        """Validated before writing, so a bad value never reaches disk."""
+        from nabu.config import parse_config
+
+        parse_config(data)
+        atomic_write_bytes(self.paths.config_file, _dump(data))
+        return self.paths.config_file
 
     # ---- sessions (memory only) -------------------------------------------------------
     def new_session(self) -> Session:
@@ -64,8 +99,14 @@ class Store:
         header = t.get("template") or {}
         path = self._template_path(header)
         if path.exists():
-            prev = json.loads(path.read_text(encoding="utf-8"))
-            prev_ver = (prev.get("template") or {}).get("version", 0)
+            prev = _load_template(path)
+            prev_header = prev["template"]
+            if prev_header.get("id") != header.get("id"):
+                raise NabuError("another template already uses this document type, region and "
+                                "format; update that template or choose a different format name")
+            prev_ver = prev_header["version"]
+            if not isinstance(header.get("version"), int) or header["version"] <= prev_ver:
+                raise NabuError(f"template version must be higher than the saved version {prev_ver}")
             vdir = path.parent / "versions"
             secure_mkdir(vdir)
             atomic_write_bytes(vdir / f"{path.stem}.v{prev_ver}.json", _dump(prev))
@@ -80,7 +121,7 @@ class Store:
             return []
         out = []
         for p in sorted(root.glob("*/*/*.json")):
-            out.append(json.loads(p.read_text(encoding="utf-8")))
+            out.append(_load_template(p))
         return out
 
     def find_template(self, template_id: str) -> Path | None:
@@ -111,7 +152,7 @@ class Store:
         if vdir.exists():
             for v in vdir.glob(f"{path.stem}.v*.json"):
                 versions.append(int(v.stem.rsplit(".v", 1)[1]))
-        current = json.loads(path.read_text(encoding="utf-8"))["template"]["version"]
+        current = _load_template(path)["template"]["version"]
         return sorted(versions) + [current]
 
     # ---- translation memory -------------------------------------------------------------
@@ -119,7 +160,14 @@ class Store:
         p = self.paths.translations_file
         if not p.exists():
             return {"schema_version": "1.0", "entries": []}
-        return json.loads(p.read_text(encoding="utf-8"))
+        try:
+            tm = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(tm.get("entries"), list):
+                raise ValueError
+        except (OSError, ValueError, AttributeError):
+            raise NabuError(f"translation memory is damaged: {p.name}. "
+                            "Run: nabu forget --translations") from None
+        return tm
 
     def remember_translation(self, entry: dict, session: Session) -> None:
         """Labels and fixed terms only, never values (FR-9.8, DD-4.1)."""
