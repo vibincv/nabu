@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "document_type": "Vendor invoice",
+  "region": "DE",
+  "format": "Acme 2025 format",
+  "template_id": "tpl_vendor_invoice_DE_acme-2025",
+  "template_version": 3,
+  "source_file": "synthetic_invoice_0412.pdf",
+  "verified_at": "2026-09-30T10:05:12Z",
+  "fields": [
+    { "name": "Invoice Number", "value": "RE-2026-0412" },
+    { "name": "Invoice Date", "value": "2026-10-01", "original": "01.10.2026" },
+    { "name": "Total Amount", "value": "1428.00 EUR", "original": "1.428,00 €" },
+    { "name": "Due Date", "value": null }
+  ],
+  "not_found": ["Due Date"],
+  "untranslated_terms": []
+}

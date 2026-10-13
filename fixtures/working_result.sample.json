@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "verified": false,
+  "document": {
+    "source_file": "synthetic_invoice_0412.pdf",
+    "pages": [{ "n": 1, "width_px": 1240, "height_px": 1754, "lang": "de" }]
+  },
+  "header": { "document_type": "Vendor invoice", "region": "DE", "format": "Acme 2025 format" },
+  "link": {
+    "outcome": "linked",
+    "template_id": "tpl_vendor_invoice_DE_acme-2025",
+    "template_version": 3,
+    "score": 0.92,
+    "candidates": []
+  },
+  "type_guess": null,
+  "country_guess": null,
+  "fields": [
+    {
+      "id": "f1", "name": "Invoice Number", "printed_label": "Rechnungsnr.",
+      "value": "RE-2026-0412", "value_en": "RE-2026-0412", "value_type": "id",
+      "lang": "de", "page": 1, "box": [660, 80, 902, 100], "box_source": "ocr",
+      "confidence": 0.97, "source": "template", "status": ["from_template"]
+    },
+    {
+      "id": "f2", "name": "Invoice Date", "printed_label": "Datum",
+      "value": "01.10.2026", "value_en": "2026-10-01", "value_type": "date",
+      "lang": "de", "page": 1, "box": [660, 132, 790, 152], "box_source": "ocr",
+      "confidence": 0.95, "source": "template", "status": ["from_template"]
+    },
+    {
+      "id": "f3", "name": "Vendor", "printed_label": "Lieferant",
+      "value": "Beispiel Bürobedarf GmbH", "value_en": "Beispiel Bürobedarf GmbH", "value_type": "name",
+      "lang": "de", "page": 1, "box": [80, 210, 470, 236], "box_source": "ocr",
+      "confidence": 0.88, "source": "template", "status": ["from_template"]
+    },
+    {
+      "id": "f4", "name": "Tax Note", "printed_label": "Hinweis",
+      "value": "Steuerschuldnerschaft des Leistungsempfängers",
+      "value_en": "Steuerschuldnerschaft des Leistungsempfängers", "value_type": "text",
+      "lang": "de", "page": 1, "box": [80, 760, 720, 786], "box_source": "ocr",
+      "confidence": 0.71, "source": "model", "status": ["not_translated"]
+    },
+    {
+      "id": "f5", "name": "Total Amount", "printed_label": "Gesamtbetrag",
+      "value": "1.428,00 €", "value_en": "1428.00 EUR", "value_type": "amount",
+      "lang": "de", "page": 1, "box": [700, 690, 902, 716], "box_source": "ocr",
+      "confidence": 0.52, "source": "model_reread", "status": ["needs_review"]
+    },
+    {
+      "id": "f6", "name": "Due Date", "printed_label": "Fällig am",
+      "value": null, "value_en": null, "value_type": "date",
+      "lang": "de", "page": 1, "box": null, "box_source": null,
+      "confidence": 0.0, "source": "template", "status": ["not_found"]
+    }
+  ]
+}

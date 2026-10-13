@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+node_modules/
+src/nabu/server/ui_dist/
+.DS_Store
+# Never commit real documents. Fixtures are synthetic only.
+*.real.*
+private/

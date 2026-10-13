@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nabu-output-1.0",
+  "title": "Nabu output JSON (DD-3)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "document_type", "region", "format", "template_id",
+               "template_version", "source_file", "verified_at", "fields", "not_found",
+               "untranslated_terms"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "document_type": { "type": ["string", "null"] },
+    "region": { "type": ["string", "null"], "pattern": "^[A-Z]{2}$" },
+    "format": { "type": ["string", "null"] },
+    "template_id": { "type": ["string", "null"] },
+    "template_version": { "type": ["integer", "null"], "minimum": 1 },
+    "source_file": { "type": "string" },
+    "verified_at": { "type": "string", "format": "date-time" },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "value": { "type": ["string", "null"] },
+          "original": { "type": "string" }
+        }
+      }
+    },
+    "not_found": { "type": "array", "items": { "type": "string" } },
+    "untranslated_terms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["term", "lang"],
+        "properties": {
+          "term": { "type": "string" },
+          "lang": { "type": "string", "pattern": "^[a-z]{2}$" }
+        }
+      }
+    }
+  }
+}

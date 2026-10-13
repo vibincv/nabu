@@ -1,0 +1,63 @@
+[project]
+name = "nabu"
+version = "0.1.0.dev0"
+description = "Private, local document reader: reads any document on your machine, you verify, it outputs JSON. Nothing leaves the machine."
+readme = "README.md"
+requires-python = ">=3.11"
+# License not chosen yet. Decide before any public release (see README).
+dependencies = [
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+# Reading stack for M1. Kept optional until M0 confirms sizes against NFR-2.
+# Licences checked: pypdfium2 (Apache-2.0/BSD-3), pdfplumber (MIT), rapidocr (Apache-2.0),
+# python-docx/openpyxl/python-pptx (MIT). Do NOT add PyMuPDF (AGPL-3.0).
+read = [
+    "pypdfium2>=4.30",
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+    "rapidocr-onnxruntime>=1.3",
+]
+
+[project.scripts]
+nabu = "nabu.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "jsonschema>=4.22",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+# The built review UI (ui/ -> src/nabu/server/ui_dist) is git-ignored but ships in the wheel.
+artifacts = ["src/nabu/server/ui_dist/"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nabu"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning:starlette.testclient"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "T20"]
+ignore = ["S101"]  # asserts are fine in tests
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "T20"]
