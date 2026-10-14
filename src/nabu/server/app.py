@@ -339,6 +339,41 @@ def create_app(port: int, token: str | None = None, on_quit: Callable[[], None] 
         return JSONResponse({"ok": True})
 
     @handled
+    async def relink(request: Request) -> Response:
+        doc = service().relink(request.path_params["doc_id"], await _json(request))
+        return JSONResponse({"document_id": doc.id, "state": doc.state}, status_code=202)
+
+    @handled
+    async def templates(_: Request) -> Response:
+        return JSONResponse({"groups": service().templates()})
+
+    @handled
+    async def template(request: Request) -> Response:
+        tid = request.path_params["template_id"]
+        if request.method == "DELETE":
+            service().delete_template(tid)
+            return JSONResponse({"ok": True})
+        if request.method == "PATCH":
+            return JSONResponse(service().rename(tid, await _json(request)))
+        return JSONResponse(service().template(tid))
+
+    @handled
+    async def history(request: Request) -> Response:
+        return JSONResponse({"versions": service().history(request.path_params["template_id"])})
+
+    @handled
+    async def rollback(request: Request) -> Response:
+        return JSONResponse(service().rollback(request.path_params["template_id"],
+                                               await _json(request)))
+
+    @handled
+    async def translations(request: Request) -> Response:
+        if request.method == "DELETE":
+            service().delete_translation(request.path_params["entry_id"])
+            return JSONResponse({"ok": True})
+        return JSONResponse({"entries": service().translations()})
+
+    @handled
     async def output(request: Request) -> Response:
         name, data = doc_of(request).output()
         return Response(data, media_type="application/json",
@@ -362,6 +397,13 @@ def create_app(port: int, token: str | None = None, on_quit: Callable[[], None] 
         Route(d + "/verify", verify, methods=["POST"]),
         Route(d + "/save", save, methods=["POST"]),
         Route(d + "/output", output),
+        Route(d + "/link", relink, methods=["PUT"]),
+        Route("/api/templates", templates),
+        Route("/api/templates/{template_id}", template, methods=["GET", "DELETE", "PATCH"]),
+        Route("/api/templates/{template_id}/history", history),
+        Route("/api/templates/{template_id}/rollback", rollback, methods=["POST"]),
+        Route("/api/translations", translations),
+        Route("/api/translations/{entry_id}", translations, methods=["DELETE"]),
     ]
     assets = ui_dist / "assets"
     if assets.exists():

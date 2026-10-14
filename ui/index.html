@@ -27,10 +27,14 @@
         </span>
       </label>
       <span id="mode" class="mode" role="status"></span>
+      <button id="templates-open" type="button">Templates</button>
       <button id="close-doc" type="button" hidden>Close document</button>
       <button id="verify" class="primary" type="button" hidden>Verify</button>
     </header>
-    <div id="banner" class="banner" role="status" hidden></div>
+    <div id="banner" class="banner" hidden>
+      <span id="banner-text" role="status"></span>
+      <button id="link-change" class="link" type="button" hidden>Change template</button>
+    </div>
     <div id="notice" class="notice" role="alert" hidden></div>
 
     <!-- Upload (FR-6.2) -->
@@ -98,23 +102,79 @@
       </div>
     </dialog>
 
-    <!-- Save dialog (FR-7.1). Templates arrive in M3: only "This document only" is enabled. -->
-    <dialog id="save" aria-labelledby="save-title">
+    <!-- Save dialog (FR-7.1 to FR-7.6, UX-3) -->
+    <dialog id="save" aria-labelledby="save-title" class="wide">
       <h2 id="save-title">Save</h2>
       <fieldset class="choices">
         <legend>What should Nabu learn from this document?</legend>
-        <label class="choice disabled"><input type="radio" name="save-choice" value="new" disabled />
-          Save as new template <span class="muted">— arrives with templates</span></label>
-        <label class="choice disabled"><input type="radio" name="save-choice" value="update" disabled />
-          Update existing template <span class="muted">— arrives with templates</span></label>
-        <label class="choice"><input type="radio" name="save-choice" value="document_only" checked />
-          This document only <span class="marker suggested">suggested</span></label>
+        <label class="choice" id="choice-new"><input type="radio" name="save-choice" value="new" />
+          Save as new template <span class="marker suggested" hidden>suggested</span></label>
+        <div id="new-inputs" class="choice-inputs">
+          <label>Document type <input id="save-type" type="text" list="type-options" spellcheck="false" autocomplete="off" /></label>
+          <datalist id="type-options"></datalist>
+          <label>Region <select id="save-region"></select></label>
+          <label>Format <input id="save-format" type="text" spellcheck="false" autocomplete="off" /></label>
+        </div>
+        <label class="choice" id="choice-update"><input type="radio" name="save-choice" value="update" />
+          Update existing template <span class="marker suggested" hidden>suggested</span></label>
+        <div id="update-inputs" class="choice-inputs">
+          <label>Template <select id="save-target"></select></label>
+        </div>
+        <label class="choice"><input type="radio" name="save-choice" value="document_only" />
+          This document only <span class="muted">— no template change</span></label>
       </fieldset>
-      <p class="muted">No template changes. Values are never stored.</p>
+      <div id="save-changes" class="save-changes"></div>
+      <p class="muted">Values are never stored. Only field names, value types, positions and the printed labels above are written.</p>
       <div class="dialog-actions">
         <button id="save-cancel" type="button">Cancel</button>
         <button id="save-confirm" class="primary" type="button">Save</button>
       </div>
+    </dialog>
+
+    <!-- Change the link (FR-5.8) -->
+    <dialog id="link-dialog" aria-labelledby="link-title">
+      <h2 id="link-title">Read with a template</h2>
+      <p class="muted">The document is read again with your choice. Edits made so far are lost.</p>
+      <fieldset class="choices" id="link-choices"></fieldset>
+      <div class="dialog-actions">
+        <button id="link-cancel" type="button">Cancel</button>
+        <button id="link-confirm" class="primary" type="button">Read again</button>
+      </div>
+    </dialog>
+
+    <!-- Template manager (FR-7.9 to FR-7.12, UX-4) -->
+    <dialog id="tm-dialog" aria-labelledby="tm-title" class="wide">
+      <h2 id="tm-title">Templates</h2>
+      <div class="tm">
+        <nav id="tm-tree" class="tm-tree" aria-label="Templates by document type, region and format"></nav>
+        <section id="tm-detail" class="tm-detail" aria-live="polite"></section>
+      </div>
+      <details class="tm-translations">
+        <summary>Remembered translations (<span id="tr-count">0</span>)</summary>
+        <ul id="tr-list"></ul>
+      </details>
+      <div class="dialog-actions">
+        <button id="tm-close" type="button">Close</button>
+      </div>
+    </dialog>
+
+    <dialog id="confirm-dialog" aria-labelledby="confirm-text">
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button id="confirm-no" type="button">Cancel</button>
+        <button id="confirm-yes" class="primary danger" type="button">Delete</button>
+      </div>
+    </dialog>
+
+    <dialog id="rename-dialog" aria-labelledby="rename-title">
+      <form method="dialog" id="rename-form">
+        <h2 id="rename-title">Rename</h2>
+        <label><span id="rename-what">Name</span> <input id="rename-input" type="text" required spellcheck="false" autocomplete="off" /></label>
+        <div class="dialog-actions">
+          <button type="button" id="rename-cancel">Cancel</button>
+          <button class="primary" type="submit">Rename</button>
+        </div>
+      </form>
     </dialog>
 
     <dialog id="done" aria-labelledby="done-title">
@@ -143,13 +203,16 @@
         <h2 id="tr-title">Type the English</h2>
         <p id="tr-term" class="term"></p>
         <label>English <input id="tr-input" type="text" required spellcheck="false" autocomplete="off" /></label>
-        <label class="muted"><input type="checkbox" disabled /> Remember this translation (arrives with templates)</label>
+        <label id="tr-remember-row"><input id="tr-remember" type="checkbox" /> Remember this translation
+          <span class="muted">(the printed label only, never a value)</span></label>
         <div class="dialog-actions">
           <button type="button" id="tr-cancel">Cancel</button>
           <button class="primary" type="submit">Use</button>
         </div>
       </form>
     </dialog>
+
+    <datalist id="name-options"></datalist>
 
     <footer class="footer">
       <span>Nothing leaves this machine. Values are not stored. Browser extensions can read this window.</span>

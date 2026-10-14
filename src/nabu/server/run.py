@@ -63,7 +63,8 @@ def serve(cfg: Config, paths: StorePaths, open_browser: bool = True) -> None:
     def quit_server() -> None:
         holder["server"].should_exit = True
 
-    documents = DocumentService(cfg, readers_factory(cfg, Store(paths)))
+    store = Store(paths)
+    documents = DocumentService(cfg, readers_factory(cfg, store), store)
     app, _token = create_app(port, on_quit=quit_server, documents=documents,
                              doctor_report=lambda: report(cfg, paths),
                              upload_limit_mb=cfg.upload_limit_mb)

@@ -5,7 +5,19 @@
 import { ApiError, fixtureMode } from "./api";
 import { fixtureBackend, liveBackend, type Backend } from "./backend";
 import { REGION_CODES } from "./regions";
-import { VALUE_TYPES, type Field, type ReadEvent, type Status, type WorkingResult } from "./types";
+import {
+  VALUE_TYPES,
+  type Field,
+  type HistoryEntry,
+  type ReadEvent,
+  type SaveBody,
+  type Status,
+  type TemplateGroup,
+  type TemplateInfo,
+  type TemplateSummary,
+  type VerifySummary,
+  type WorkingResult,
+} from "./types";
 
 const SVG = "http://www.w3.org/2000/svg";
 const backend: Backend = fixtureMode ? fixtureBackend() : liveBackend;
@@ -20,6 +32,8 @@ const state = {
   drawing: false,
   chosen: [] as File[],
   images: new Map<number, string>(), // page -> object URL of the in-memory image
+  groups: [] as TemplateGroup[], // saved templates: names only, never values
+  summary: null as VerifySummary | null,
 };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -146,7 +160,9 @@ async function follow(id: string): Promise<void> {
         $("reading-stage").textContent =
           e.stage === "translating"
             ? "Translating to English"
-            : `${e.stage === "reading" ? "Reading" : "Finding fields"}: page ${e.done} of ${e.total}`;
+            : e.stage === "reading fields"
+              ? "Reading the fields of your template"
+              : `${e.stage === "reading" ? "Reading" : "Finding fields"}: page ${e.done} of ${e.total}`;
       }
     });
     const end = last as ReadEvent | null;
@@ -162,6 +178,7 @@ async function follow(id: string): Promise<void> {
 async function loadResult(): Promise<void> {
   if (!state.docId) return;
   state.wr = await backend.result(state.docId);
+  await loadTemplates();
   state.page = state.wr.document.pages[0]?.n ?? 1;
   for (const url of state.images.values()) URL.revokeObjectURL(url);
   state.images.clear();
@@ -183,8 +200,12 @@ async function closeDocument(): Promise<void> {
   state.images.clear();
   // FR-11.3: the window keeps no document text once the document is closed.
   for (const list of ["fields", "removed-list", "page-messages", "page", "summary-issues"]) $(list).replaceChildren();
-  for (const id of ["page-text", "summary-text", "banner", "tr-term"]) $(id).textContent = "";
-  for (const id of ["doc-type", "name-input", "tr-input"]) $<HTMLInputElement>(id).value = "";
+  for (const list of ["save-changes", "link-choices", "name-options", "save-target"]) $(list).replaceChildren();
+  for (const id of ["page-text", "summary-text", "banner-text", "tr-term"]) $(id).textContent = "";
+  for (const id of ["doc-type", "name-input", "tr-input", "save-type", "save-format"]) {
+    $<HTMLInputElement>(id).value = "";
+  }
+  state.summary = null;
   $<HTMLSelectElement>("region").value = "";
   if (id) await backend.close(id).catch(() => undefined);
   show("upload");
@@ -397,6 +418,7 @@ function fieldRow(f: Field): HTMLLIElement {
   const top = el("div", "row-top");
   const name = noLeakInput(el("input", "name"));
   name.value = f.name;
+  name.setAttribute("list", "name-options"); // FR-6.5: names from this document type's templates
   name.setAttribute("aria-label", "Field name");
   name.addEventListener("change", () => {
     const v = name.value.trim();
@@ -442,9 +464,13 @@ function fieldRow(f: Field): HTMLLIElement {
   if (f.lang && f.lang !== "en") meta.append(el("span", "badge", f.lang.toUpperCase()));
   for (const s of f.status) {
     if (s === "suggested") {
-      const b = el("button", "marker suggested", "suggested · accept");
+      const label = f.name_suggestion ? `use "${f.name_suggestion}"` : "suggested · accept";
+      const b = el("button", "marker suggested", label);
       b.type = "button";
-      b.setAttribute("aria-label", `Accept suggested field ${f.name}`);
+      b.setAttribute(
+        "aria-label",
+        f.name_suggestion ? `Rename ${f.name} to ${f.name_suggestion}` : `Accept suggested field ${f.name}`,
+      );
       b.addEventListener("click", () => edit(f, { accept: true }));
       meta.append(b);
     } else if (s === "not_translated") {
@@ -475,6 +501,10 @@ function askTranslation(f: Field): void {
   const input = noLeakInput($<HTMLInputElement>("tr-input"));
   $("tr-term").textContent = `${term}${f.lang ? ` (${f.lang.toUpperCase()})` : ""}`;
   input.value = "";
+  // FR-9.8: printed labels can be remembered, values never
+  const remember = $<HTMLInputElement>("tr-remember");
+  remember.checked = false;
+  $("tr-remember-row").hidden = !backend.live || part !== "name" || !f.printed_label || !f.lang;
   dialog.showModal();
   input.focus();
   const form = $<HTMLFormElement>("tr-form");
@@ -484,7 +514,9 @@ function askTranslation(f: Field): void {
     dialog.close();
     if (!ok || !input.value.trim()) return;
     void attempt(async () => {
-      replaceField(await backend.setTranslation(state.docId!, `${f.id}.${part}`, input.value.trim()));
+      replaceField(
+        await backend.setTranslation(state.docId!, `${f.id}.${part}`, input.value.trim(), remember.checked),
+      );
       changed();
       render();
     });
@@ -550,18 +582,70 @@ function renderHeader(): void {
   rgGuess.hidden = !guess || guess === wr.header.region;
   rgGuess.textContent = `Use ${guess}`;
 
+  // FR-5.7: the link result is always shown
   const b = $("banner");
+  const t = wr.link.template;
+  const about = t ? `${t.document_type} · ${t.region ?? "No region"} · ${t.format}` : "";
   const text: Record<WorkingResult["link"]["outcome"], string> = {
-    linked: `Linked to template: ${wr.header.document_type} · ${wr.header.region ?? "No region"} · ${wr.header.format}`,
+    linked: `Linked to template: ${about}`,
     ambiguous: "Several templates match — choose one",
-    similar: "Similar to a saved template. Check the suggested names.",
-    none: "No matching template. Verify the fields; saving templates arrives in a later version.",
+    similar: `Similar to template: ${about}. Check the suggested names.`,
+    none: "No matching template. Verify the fields, then save as a new template.",
   };
-  b.textContent = wr.verified
+  $("banner-text").textContent = wr.verified
     ? "Verified. The output is ready to download; any change needs a new Verify."
     : text[wr.link.outcome];
   b.className = `banner ${wr.link.outcome}`;
+  const change = $<HTMLButtonElement>("link-change");
+  change.hidden = !backend.live || (wr.link.outcome === "none" && templateCount() === 0);
+  change.textContent = wr.link.outcome === "ambiguous" ? "Choose template" : "Change template";
   $("mode").textContent = `${wr.document.source_file}${backend.live ? "" : " · fixture mode, synthetic sample"}`;
+  fillNameOptions();
+}
+
+// ---- templates known to the window: names only (FR-6.5) --------------------------------------
+async function loadTemplates(): Promise<void> {
+  state.groups = await backend.templates().catch(() => []);
+}
+
+function allTemplates(): TemplateSummary[] {
+  return state.groups.flatMap((g) => g.regions.flatMap((r) => r.formats));
+}
+
+function templateCount(): number {
+  return allTemplates().length;
+}
+
+function fillNameOptions(): void {
+  // FR-6.5: names used in other templates of the same document type
+  const type = state.wr?.header.document_type?.toLowerCase();
+  const names = new Set<string>();
+  for (const t of allTemplates()) {
+    if (type && t.document_type.toLowerCase() === type) t.field_names.forEach((n) => names.add(n));
+  }
+  $("name-options").replaceChildren(
+    ...[...names].sort().map((n) => {
+      const o = el("option");
+      o.value = n;
+      return o;
+    }),
+  );
+}
+
+function nextFormat(type: string, region: string | null): string {
+  const used = new Set(
+    allTemplates()
+      .filter((t) => t.document_type.toLowerCase() === type.toLowerCase() && t.region === region)
+      .map((t) => t.format.toLowerCase()),
+  );
+  for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+    if (!used.has(`format ${letter.toLowerCase()}`)) return `Format ${letter}`;
+  }
+  return `Format ${used.size + 1}`;
+}
+
+function describeTemplate(t: TemplateInfo): string {
+  return `${t.document_type} · ${t.region ?? "No region"} · ${t.format} (v${t.version})`;
 }
 
 function setHeader(body: Record<string, string>): void {
@@ -583,8 +667,387 @@ async function openSummary(): Promise<void> {
       ...s.duplicates.map((d) => el("li", "blocking", `More than one field is named "${d}". Rename or remove one.`)),
     );
     $<HTMLButtonElement>("summary-confirm").disabled = !s.can_confirm; // FR-6.16
+    state.summary = s;
     $<HTMLDialogElement>("summary").showModal();
   });
+}
+
+async function confirmSummary(): Promise<void> {
+  $<HTMLDialogElement>("summary").close();
+  const s = state.summary;
+  if (!s) return;
+  if (!s.save_dialog_needed) {
+    // FR-6.12: the linked template was used as it is; the server already confirmed it.
+    await attempt(async () => {
+      state.wr = await backend.result(state.docId!);
+      renderHeader();
+      $<HTMLDialogElement>("done").showModal();
+    });
+    return;
+  }
+  openSave(s);
+}
+
+// ---- save dialog (FR-7.1 to FR-7.6, UX-3) ------------------------------------------------------
+function saveChoice(): SaveBody["choice"] | null {
+  const checked = document.querySelector<HTMLInputElement>('input[name="save-choice"]:checked');
+  return (checked?.value as SaveBody["choice"] | undefined) ?? null;
+}
+
+function openSave(s: VerifySummary): void {
+  const wr = state.wr!;
+  const choices = s.save_choices;
+  for (const value of ["new", "update", "document_only"] as const) {
+    const radio = document.querySelector<HTMLInputElement>(`input[name="save-choice"][value="${value}"]`)!;
+    radio.disabled = !choices[value];
+    radio.checked = value === (choices[s.suggested ?? "new"] ? s.suggested : "document_only");
+    radio.closest("label")?.classList.toggle("disabled", radio.disabled);
+  }
+  // FR-7.2: the suggested choice is labelled
+  $("choice-new").querySelector<HTMLElement>(".marker")!.hidden = s.suggested !== "new";
+  $("choice-update").querySelector<HTMLElement>(".marker")!.hidden = s.suggested !== "update";
+
+  const type = noLeakInput($<HTMLInputElement>("save-type"));
+  type.value = wr.header.document_type ?? "";
+  $("type-options").replaceChildren(
+    ...(s.document_types ?? []).map((n) => {
+      const o = el("option");
+      o.value = n;
+      return o;
+    }),
+  );
+  const region = noLeakInput($<HTMLSelectElement>("save-region"));
+  region.replaceChildren(...[...$<HTMLSelectElement>("region").options].map((o) => o.cloneNode(true)));
+  region.value = wr.header.region ?? "";
+  const fmt = noLeakInput($<HTMLInputElement>("save-format"));
+  fmt.value = s.format_suggestion ?? nextFormat(type.value, region.value || null);
+  fmt.dataset.auto = "1"; // follows type and region until the user types a name
+
+  const target = noLeakInput($<HTMLSelectElement>("save-target"));
+  target.replaceChildren(
+    ...(s.update_targets ?? []).map((t) => {
+      const o = el("option", "", describeTemplate(t));
+      o.value = t.template_id;
+      return o;
+    }),
+  );
+  renderChanges(s);
+  syncSave();
+  $<HTMLDialogElement>("save").showModal();
+}
+
+function renderChanges(s: VerifySummary): void {
+  const c = s.changes;
+  const box = $("save-changes");
+  box.replaceChildren();
+  const list = (title: string, items: string[]) => {
+    if (!items.length) return;
+    const ul = el("ul");
+    ul.append(...items.map((i) => el("li", "", i)));
+    box.append(el("h3", "", title), ul);
+  };
+  if (c) {
+    list("Renamed", c.renamed.map(([a, b]) => `${a ?? "(no label)"} → ${b}`));
+    list("Added", c.added);
+    list("Removed", c.removed);
+    list("Value type changed", c.type_changed);
+  }
+  // FR-7.1: every printed label that will be stored, since these are written to disk
+  list("Printed labels stored as anchors", s.labels ?? []);
+}
+
+function syncSave(): void {
+  const choice = saveChoice();
+  const isNew = choice === "new";
+  $("new-inputs").classList.toggle("off", !isNew);
+  $("update-inputs").classList.toggle("off", choice !== "update");
+  // UX-3: type and region are editable only for a new template
+  for (const id of ["save-type", "save-region", "save-format"]) $<HTMLInputElement>(id).disabled = !isNew;
+  $<HTMLSelectElement>("save-target").disabled = choice !== "update";
+  const fmt = $<HTMLInputElement>("save-format");
+  if (isNew && fmt.dataset.auto) {
+    fmt.value = nextFormat($<HTMLInputElement>("save-type").value.trim(), $<HTMLSelectElement>("save-region").value || null);
+  }
+  const ready =
+    choice === "document_only" ||
+    (choice === "update" && !!$<HTMLSelectElement>("save-target").value) ||
+    (isNew && !!$<HTMLInputElement>("save-type").value.trim() && !!fmt.value.trim());
+  $<HTMLButtonElement>("save-confirm").disabled = !ready;
+}
+
+async function confirmSave(): Promise<void> {
+  const choice = saveChoice();
+  if (!choice) return;
+  const body: SaveBody = { choice };
+  if (choice === "new") {
+    body.document_type = $<HTMLInputElement>("save-type").value.trim();
+    body.region = $<HTMLSelectElement>("save-region").value;
+    body.format = $<HTMLInputElement>("save-format").value.trim();
+  } else if (choice === "update") {
+    body.template_id = $<HTMLSelectElement>("save-target").value;
+  }
+  await attempt(async () => {
+    await backend.save(state.docId!, body);
+    $<HTMLDialogElement>("save").close();
+    if (backend.live) {
+      state.wr = await backend.result(state.docId!); // header now names the saved template
+      await loadTemplates();
+    } else {
+      state.wr!.verified = true;
+    }
+    render();
+    $<HTMLDialogElement>("done").showModal();
+  });
+}
+
+// ---- change the link (FR-5.8) ------------------------------------------------------------------
+function openLink(): void {
+  const wr = state.wr!;
+  const offered: TemplateInfo[] = wr.link.candidates.length ? wr.link.candidates : allTemplates();
+  const box = $("link-choices");
+  const option = (value: string, text: string, checked: boolean) => {
+    const label = el("label", "choice");
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = "link-choice";
+    radio.value = value;
+    radio.checked = checked;
+    label.append(radio, ` ${text}`);
+    return label;
+  };
+  const score = (t: TemplateInfo) => {
+    const c = wr.link.candidates.find((x) => x.template_id === t.template_id);
+    return c ? ` — match ${Math.round(c.score * 100)}%` : "";
+  };
+  box.replaceChildren(
+    el("legend", "", "Template"),
+    ...offered.map((t, i) =>
+      option(t.template_id, `${describeTemplate(t)}${score(t)}`, wr.link.template_id ? t.template_id === wr.link.template_id : i === 0),
+    ),
+    option("", "No template: find the fields again", offered.length === 0),
+  );
+  $<HTMLDialogElement>("link-dialog").showModal();
+}
+
+async function confirmLink(): Promise<void> {
+  const picked = document.querySelector<HTMLInputElement>('input[name="link-choice"]:checked');
+  if (!picked) return;
+  $<HTMLDialogElement>("link-dialog").close();
+  const id = state.docId!;
+  await attempt(async () => {
+    await backend.relink(id, picked.value || null);
+    await follow(id);
+  });
+}
+
+// ---- template manager (FR-7.9 to FR-7.12, UX-4) ------------------------------------------------
+function askConfirm(text: string, action: string): Promise<boolean> {
+  const dialog = $<HTMLDialogElement>("confirm-dialog");
+  $("confirm-text").textContent = text;
+  $("confirm-yes").textContent = action;
+  dialog.showModal();
+  return new Promise((resolve) => {
+    const done = (ok: boolean) => {
+      $("confirm-yes").onclick = null;
+      $("confirm-no").onclick = null;
+      dialog.close();
+      resolve(ok);
+    };
+    $("confirm-yes").onclick = () => done(true);
+    $("confirm-no").onclick = () => done(false);
+  });
+}
+
+function askRename(what: string, current: string): Promise<string | null> {
+  const dialog = $<HTMLDialogElement>("rename-dialog");
+  const input = noLeakInput($<HTMLInputElement>("rename-input"));
+  $("rename-what").textContent = what;
+  $("rename-title").textContent = `Rename ${what.toLowerCase()}`;
+  input.value = current;
+  dialog.showModal();
+  input.select();
+  return new Promise((resolve) => {
+    const form = $<HTMLFormElement>("rename-form");
+    const done = (value: string | null) => {
+      form.onsubmit = null;
+      $("rename-cancel").onclick = null;
+      dialog.close();
+      resolve(value && value.trim() && value.trim() !== current ? value.trim() : null);
+    };
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      done(input.value);
+    };
+    $("rename-cancel").onclick = () => done(null);
+  });
+}
+
+async function openTemplates(): Promise<void> {
+  await attempt(async () => {
+    await loadTemplates();
+    renderTree(null);
+    await renderTranslations();
+    $<HTMLDialogElement>("tm-dialog").showModal();
+  });
+}
+
+function renderTree(selected: string | null): void {
+  const tree = $("tm-tree");
+  if (!state.groups.length) {
+    tree.replaceChildren(
+      el("p", "muted", backend.live ? "No templates yet. Verify a document and save it as a new template." : "Fixture mode has no templates."),
+    );
+    $("tm-detail").replaceChildren();
+    return;
+  }
+  tree.replaceChildren(
+    ...state.groups.map((g) => {
+      const d = el("details");
+      d.open = true;
+      d.append(el("summary", "", g.document_type));
+      for (const r of g.regions) {
+        const region = el("div", "tm-region", r.region ? `${regionNames?.of(r.region) ?? r.region} (${r.region})` : "No region");
+        const ul = el("ul");
+        for (const t of r.formats) {
+          const li = el("li");
+          const b = el("button", `tm-format ${t.template_id === selected ? "selected" : ""}`, t.format);
+          b.type = "button";
+          b.append(el("span", "muted", ` v${t.version} · ${t.fields} fields · ${shortDate(t.updated_at)}`));
+          b.addEventListener("click", () => void showTemplate(t.template_id));
+          li.append(b);
+          ul.append(li);
+        }
+        d.append(region, ul);
+      }
+      return d;
+    }),
+  );
+}
+
+function shortDate(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : "";
+}
+
+async function showTemplate(tid: string): Promise<void> {
+  await attempt(async () => {
+    const t = await backend.template(tid);
+    renderTree(tid);
+    const h = t.template;
+    const detail = $("tm-detail");
+    const title = el("h3", "", `${h.document_type} · ${h.region ?? "No region"} · ${h.format.name}`);
+    const meta = el("p", "muted", `Version ${h.version}${h.updated_at ? ` · updated ${shortDate(h.updated_at)}` : ""}`);
+    const table = el("table", "tm-fields");
+    const head = el("tr");
+    head.append(el("th", "", "Field name"), el("th", "", "Value type"), el("th", "", "Printed label"));
+    table.append(head);
+    for (const f of t.fields) {
+      const row = el("tr");
+      row.append(el("td", "", f.name), el("td", "", f.value_type), el("td", "", f.anchor.printed_label ?? "(drawn box)"));
+      table.append(row);
+    }
+    const actions = el("div", "tm-actions");
+    const button = (text: string, fn: () => Promise<void>, cls = "") => {
+      const b = el("button", cls, text);
+      b.type = "button";
+      b.addEventListener("click", () => void attempt(fn));
+      actions.append(b);
+    };
+    button("Rename format", async () => {
+      const name = await askRename("Format", h.format.name);
+      if (name) await afterChange(await backend.renameTemplate(tid, { format: name }), tid);
+    });
+    button("Rename document type", async () => {
+      const name = await askRename("Document type", h.document_type);
+      if (name) await afterChange(await backend.renameTemplate(tid, { document_type: name }), tid);
+    });
+    button("History", () => showHistory(tid));
+    button(
+      "Delete",
+      async () => {
+        // FR-7.10: the confirmation names the template
+        const what = `${h.document_type} · ${h.region ?? "No region"} · ${h.format.name}`;
+        if (!(await askConfirm(`Delete the template "${what}" and its earlier versions? This cannot be undone.`, "Delete"))) return;
+        await backend.deleteTemplate(tid);
+        await loadTemplates();
+        renderTree(null);
+        $("tm-detail").replaceChildren(el("p", "muted", `Deleted "${what}".`));
+        if (state.wr) renderHeader();
+      },
+      "danger",
+    );
+    const removed = t.removed_labels.length
+      ? el("p", "muted", `Hidden on future documents: ${t.removed_labels.join(", ")}`)
+      : el("span");
+    detail.replaceChildren(title, meta, table, removed, actions, el("div", "tm-history"));
+  });
+}
+
+async function afterChange(_t: unknown, tid: string): Promise<void> {
+  await loadTemplates();
+  await showTemplate(tid);
+  if (state.wr) renderHeader();
+}
+
+async function showHistory(tid: string): Promise<void> {
+  const versions = await backend.history(tid);
+  const box = $("tm-detail").querySelector(".tm-history")!;
+  const ul = el("ul", "history");
+  for (const v of [...versions].reverse()) {
+    const li = el("li");
+    li.append(el("span", "", `v${v.version} · ${shortDate(v.updated_at)} · ${describeChange(v)}${v.current ? " (current)" : ""}`));
+    if (!v.current) {
+      const b = el("button", "link", "Roll back to this version");
+      b.type = "button";
+      b.addEventListener("click", () =>
+        void attempt(async () => {
+          if (!(await askConfirm(`Restore the field names of version ${v.version}? This is saved as a new version.`, "Roll back"))) return;
+          await afterChange(await backend.rollback(tid, v.version), tid);
+          await showHistory(tid);
+        }),
+      );
+      li.append(b);
+    }
+    ul.append(li);
+  }
+  box.replaceChildren(el("h3", "", "History"), ul);
+}
+
+function describeChange(v: HistoryEntry): string {
+  const c = v.change;
+  if (!c) return "";
+  if (c.kind === "rolled_back") return `rolled back to v${c.to_version}`;
+  if (c.kind === "renamed") {
+    const [a, b] = c.format ?? c.document_type ?? ["?", "?"];
+    return `renamed ${a} → ${b}`;
+  }
+  const parts = [c.kind ?? "changed"];
+  for (const [a, b] of c.renamed ?? []) parts.push(`renamed ${a ?? "?"} → ${b}`);
+  for (const n of c.added ?? []) parts.push(`added ${n}`);
+  for (const n of c.removed ?? []) parts.push(`removed ${n}`);
+  for (const n of c.type_changed ?? []) parts.push(`type of ${n}`);
+  if (c.reordered) parts.push("reordered");
+  return parts.join("; ");
+}
+
+async function renderTranslations(): Promise<void> {
+  const entries = await backend.translations().catch(() => []);
+  $("tr-count").textContent = String(entries.length);
+  $("tr-list").replaceChildren(
+    ...entries.map((e) => {
+      const li = el("li");
+      const b = el("button", "link", "Delete");
+      b.type = "button";
+      b.setAttribute("aria-label", `Delete the translation of ${e.term}`);
+      b.addEventListener("click", () =>
+        void attempt(async () => {
+          await backend.deleteTranslation(e.id);
+          await renderTranslations();
+        }),
+      );
+      li.append(el("span", "", `${e.term} (${e.lang.toUpperCase()}) → ${e.english} `), b);
+      return li;
+    }),
+  );
 }
 
 function downloadName(source: string): string {
@@ -680,20 +1143,25 @@ function wire(): void {
   // verify -> save -> output
   $("verify").addEventListener("click", () => void openSummary());
   $("summary-back").addEventListener("click", () => $<HTMLDialogElement>("summary").close());
-  $("summary-confirm").addEventListener("click", () => {
-    $<HTMLDialogElement>("summary").close();
-    $<HTMLDialogElement>("save").showModal();
-  });
+  $("summary-confirm").addEventListener("click", () => void confirmSummary());
+  // FR-7.6: Cancel saves nothing
   $("save-cancel").addEventListener("click", () => $<HTMLDialogElement>("save").close());
-  $("save-confirm").addEventListener("click", () => {
-    void attempt(async () => {
-      await backend.save(state.docId!);
-      $<HTMLDialogElement>("save").close();
-      state.wr!.verified = true;
-      renderHeader();
-      $<HTMLDialogElement>("done").showModal();
-    });
+  $("save-confirm").addEventListener("click", () => void confirmSave());
+  document.querySelectorAll('input[name="save-choice"]').forEach((r) => r.addEventListener("change", syncSave));
+  $("save-type").addEventListener("input", syncSave);
+  $("save-region").addEventListener("change", syncSave);
+  $("save-format").addEventListener("input", () => {
+    delete $("save-format").dataset.auto;
+    syncSave();
   });
+  $("save-target").addEventListener("change", syncSave);
+
+  // link and templates
+  $("link-change").addEventListener("click", openLink);
+  $("link-cancel").addEventListener("click", () => $<HTMLDialogElement>("link-dialog").close());
+  $("link-confirm").addEventListener("click", () => void confirmLink());
+  $("templates-open").addEventListener("click", () => void openTemplates());
+  $("tm-close").addEventListener("click", () => $<HTMLDialogElement>("tm-dialog").close());
   $("download").addEventListener("click", () => void download());
   $("done-back").addEventListener("click", () => $<HTMLDialogElement>("done").close());
   $("done-close").addEventListener("click", () => {

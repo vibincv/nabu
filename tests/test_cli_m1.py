@@ -61,3 +61,23 @@ def test_doctor_reports_ocr(nabu_home, capsys):
     assert set(r["ocr"]) == {"engine", "present", "languages", "packs_available"}
     assert r["ocr"]["packs_available"]["ko"]["installed"] is False
     assert "ram_free_gb" in r and isinstance(r["gpus"], list)
+
+
+def test_templates_history_and_rollback(nabu_home, capsys):  # FR-7.12, FR-7.13
+    from test_store import template
+
+    store = Store()
+    s = Session()
+    store.save_template(template(name="Invoice Number"), s)
+    t2 = template(name="Invoice No", version=2)
+    t2["template"]["change"] = {"kind": "updated", "renamed": [["Invoice Number", "Invoice No"]],
+                                "added": [], "removed": [], "type_changed": [], "reordered": False}
+    store.save_template(t2, s)
+    tid = t2["template"]["id"]
+    assert main(["templates", "history", tid]) == 0
+    out = capsys.readouterr().out
+    assert "v2" in out and "renamed Invoice Number -> Invoice No" in out and "(current)" in out
+    assert main(["templates", "rollback", tid, "1"]) == 0
+    assert store.load_template(tid)["fields"][0]["name"] == "Invoice Number"
+    assert store.history(tid) == [1, 2, 3]
+    assert main(["templates", "rollback", tid, "7"]) == 1

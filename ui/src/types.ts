@@ -30,6 +30,16 @@ export interface Field {
   status: Status[];
   translation: Partial<Record<"name" | "value", TStatus>>;
   removed: boolean;
+  template_key?: string | null; // the template field this was read for (M3)
+  name_suggestion?: string | null; // a similar template's name, one click to accept (FR-5.6)
+}
+
+export interface TemplateInfo {
+  template_id: string;
+  document_type: string;
+  region: string | null;
+  format: string;
+  version: number;
 }
 
 export interface PageInfo {
@@ -60,7 +70,10 @@ export interface WorkingResult {
     template_id: string | null;
     template_version: number | null;
     score: number;
-    candidates: { template_id: string; score: number }[];
+    candidates: (TemplateInfo & { score: number })[];
+    template?: TemplateInfo | null; // linked, or the most similar one
+    missing_pages?: number[];
+    chosen?: boolean;
   };
   type_guess: string | null;
   country_guess: string | null;
@@ -77,6 +90,68 @@ export interface VerifySummary {
   can_confirm: boolean;
   save_dialog_needed: boolean;
   save_choices: { document_only: boolean; new: boolean; update: boolean };
+  suggested?: "new" | "update";
+  update_targets?: TemplateInfo[];
+  document_types?: string[];
+  format_suggestion?: string;
+  changes?: Changes;
+  labels?: string[]; // printed labels that would be written to disk (FR-7.1)
+}
+
+export interface Changes {
+  renamed: [string | null, string][];
+  added: string[];
+  removed: string[];
+  type_changed: string[];
+  reordered: boolean;
+}
+
+export interface SaveBody {
+  choice: "new" | "update" | "document_only";
+  document_type?: string;
+  region?: string;
+  format?: string;
+  template_id?: string;
+}
+
+export interface TemplateSummary extends TemplateInfo {
+  fields: number;
+  updated_at: string | null;
+  field_names: string[];
+}
+
+export interface TemplateGroup {
+  document_type: string;
+  regions: { region: string | null; formats: TemplateSummary[] }[];
+}
+
+export interface Anchor {
+  printed_label: string | null;
+  page: number | null;
+  box: number[] | null;
+  value_offset: number[] | null;
+  tolerance: number;
+}
+
+// DD-2: never holds a value.
+export interface Template {
+  template: {
+    id: string;
+    document_type: string;
+    region: string | null;
+    format: { id: string; name: string };
+    version: number;
+    updated_at?: string;
+  };
+  fields: { order: number; name: string; key: string; value_type: ValueType; anchor: Anchor }[];
+  removed_labels: string[];
+}
+
+export interface HistoryEntry {
+  version: number;
+  updated_at: string | null;
+  change: (Partial<Changes> & { kind?: string; to_version?: number; format?: string[]; document_type?: string[] }) | null;
+  current: boolean;
 }
 
 export interface ReadEvent {

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -109,7 +110,10 @@ class Store:
         """
         if session is None:
             raise NabuError("templates are saved only from a review session (FR-7.6)")
-        assert_no_values(t, session.values(), "template")
+        return self._save_template(t, session.values())
+
+    def _save_template(self, t: dict, values: Iterable[str]) -> Path:
+        assert_no_values(t, values, "template")
         header = t.get("template") or {}
         path = self._template_path(header)
         if path.exists():
@@ -155,6 +159,7 @@ class Store:
         for v in sorted(vdir.glob(f"{path.stem}.v*.json")) if vdir.exists() else []:
             v.unlink()
             removed.append(str(v))
+        self._prune(path.parent)
         return removed
 
     def history(self, template_id: str) -> list[int]:
@@ -168,6 +173,81 @@ class Store:
                 versions.append(int(v.stem.rsplit(".v", 1)[1]))
         current = _load_template(path)["template"]["version"]
         return sorted(versions) + [current]
+
+    def load_template(self, template_id: str) -> dict:
+        path = self.find_template(template_id)
+        if path is None:
+            raise NabuError(f"no template with id {template_id}")
+        return _load_template(path)
+
+    def _version_file(self, path: Path, version: int) -> Path:
+        return path.parent / "versions" / f"{path.stem}.v{version}.json"
+
+    def history_entries(self, template_id: str) -> list[dict]:
+        """Each version with its time and what changed: field names only (FR-7.12)."""
+        path = self.find_template(template_id)
+        if path is None:
+            raise NabuError(f"no template with id {template_id}")
+        out = []
+        current = _load_template(path)["template"]["version"]
+        for v in self.history(template_id):
+            h = _load_template(path if v == current else self._version_file(path, v))["template"]
+            out.append({"version": v, "updated_at": h.get("updated_at"),
+                        "change": h.get("change"), "current": v == current})
+        return out
+
+    def rollback_template(self, template_id: str, version: int, values: Iterable[str]) -> Path:
+        """Restore an earlier version's fields as a new version (FR-7.12). The header (names,
+        region, format) stays as it is now, so a rename in between is kept."""
+        path = self.find_template(template_id)
+        if path is None:
+            raise NabuError(f"no template with id {template_id}")
+        current = _load_template(path)
+        h = current["template"]
+        old_file = self._version_file(path, version)
+        if version == h["version"] or not old_file.exists():
+            raise NabuError(f"template {template_id} has no earlier version {version}")
+        old = _load_template(old_file)
+        t = {**old, "template": {**h, "version": h["version"] + 1,
+                                 "change": {"kind": "rolled_back", "to_version": version}}}
+        return self._save_template(t, values)
+
+    def move_template(self, template_id: str, changes: dict, note: dict,
+                      values: Iterable[str]) -> Path:
+        """Rename a template's document type or format (FR-7.11): a new version under the new
+        name. Its earlier versions move with it."""
+        old_path = self.find_template(template_id)
+        if old_path is None:
+            raise NabuError(f"no template with id {template_id}")
+        t = _load_template(old_path)
+        h = t["template"]
+        new = {**t, "template": {**h, **changes, "version": h["version"] + 1, "change": note}}
+        new_path = self._template_path(new["template"])
+        if new_path == old_path:
+            return self._save_template(new, values)
+        if new_path.exists():
+            raise NabuError("another template already uses this document type, region and "
+                            "format; choose a different name")
+        assert_no_values(new, values, "template")
+        vdir = old_path.parent / "versions"
+        for v in sorted(vdir.glob(f"{old_path.stem}.v*.json")) if vdir.exists() else []:
+            n = int(v.stem.rsplit(".v", 1)[1])
+            atomic_write_bytes(self._version_file(new_path, n), v.read_bytes())
+        atomic_write_bytes(self._version_file(new_path, h["version"]), _dump(t))
+        new["template"]["updated_at"] = _now()
+        atomic_write_bytes(new_path, _dump(new))
+        for v in sorted(vdir.glob(f"{old_path.stem}.v*.json")) if vdir.exists() else []:
+            v.unlink()
+        old_path.unlink()
+        self._prune(old_path.parent)
+        return new_path
+
+    def _prune(self, folder: Path) -> None:
+        """Remove empty folders left by a move or delete, up to the templates folder."""
+        root = self.paths.templates_dir
+        for d in (folder / "versions", folder, folder.parent):
+            if d.exists() and d != root and root in d.parents and not any(d.iterdir()):
+                d.rmdir()
 
     # ---- translation memory -------------------------------------------------------------
     def translations(self) -> dict:

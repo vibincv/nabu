@@ -131,6 +131,9 @@ def translate_fields(fields: list[Field], memory: TranslationMemory, model: Mode
 
 def _label(f: Field, memory: TranslationMemory, doc_type: str | None,
            pending: dict[tuple[str, int], list[tuple[Field, str, str]]]) -> None:
+    if f.template_key is not None:  # the name comes from the user's template (FR-5.5)
+        f.translation["name"] = "not_needed"
+        return
     label = f.printed_label or ""
     if not label or f.lang == ENGLISH or not _has_letters(label):
         f.name = label or f.name

@@ -3,7 +3,26 @@
 
 import fixture from "@fixtures/working_result.sample.json";
 import { api, apiBlob, readEvents, uploadFiles } from "./api";
-import type { Field, Header, PageInfo, ReadEvent, VerifySummary, WorkingResult } from "./types";
+import type {
+  Field,
+  Header,
+  HistoryEntry,
+  PageInfo,
+  ReadEvent,
+  SaveBody,
+  Template,
+  TemplateGroup,
+  VerifySummary,
+  WorkingResult,
+} from "./types";
+
+export interface TranslationEntry {
+  id: string;
+  lang: string;
+  term: string;
+  english: string;
+  scope?: string | null;
+}
 
 export interface Backend {
   readonly live: boolean;
@@ -14,16 +33,27 @@ export interface Backend {
   pageImage(id: string, n: number): Promise<Blob | null>;
   editField(id: string, fieldId: string, body: Record<string, unknown>): Promise<Field>;
   addField(id: string, body: { name: string; page: number; box: number[] }): Promise<Field>;
-  setTranslation(id: string, termId: string, english: string): Promise<Field>;
+  setTranslation(id: string, termId: string, english: string, remember: boolean): Promise<Field>;
   setHeader(id: string, body: Partial<Header>): Promise<Header>;
   reorder(id: string, order: number[]): Promise<WorkingResult>;
   verify(id: string): Promise<VerifySummary>;
-  save(id: string): Promise<void>;
+  save(id: string, body: SaveBody): Promise<void>;
   output(id: string): Promise<Blob>;
   close(id: string): Promise<void>;
+  relink(id: string, templateId: string | null): Promise<void>;
+  // template manager (UX-4) and translation memory (FR-9.8)
+  templates(): Promise<TemplateGroup[]>;
+  template(tid: string): Promise<Template>;
+  deleteTemplate(tid: string): Promise<void>;
+  renameTemplate(tid: string, body: { document_type?: string; format?: string }): Promise<Template>;
+  history(tid: string): Promise<HistoryEntry[]>;
+  rollback(tid: string, version: number): Promise<Template>;
+  translations(): Promise<TranslationEntry[]>;
+  deleteTranslation(entryId: string): Promise<void>;
 }
 
 const doc = (id: string) => `/api/documents/${encodeURIComponent(id)}`;
+const tpl = (tid: string) => `/api/templates/${encodeURIComponent(tid)}`;
 
 export const liveBackend: Backend = {
   live: true,
@@ -40,17 +70,32 @@ export const liveBackend: Backend = {
   },
   editField: (id, fieldId, body) => api<Field>(`${doc(id)}/fields/${encodeURIComponent(fieldId)}`, "PATCH", body),
   addField: (id, body) => api<Field>(`${doc(id)}/fields`, "POST", body),
-  setTranslation: (id, termId, english) =>
-    api<Field>(`${doc(id)}/translations/${encodeURIComponent(termId)}`, "PATCH", { english }),
+  setTranslation: (id, termId, english, remember) =>
+    api<Field>(`${doc(id)}/translations/${encodeURIComponent(termId)}`, "PATCH", { english, remember }),
   setHeader: (id, body) => api<Header>(`${doc(id)}/header`, "PATCH", body),
   reorder: (id, order) => api<WorkingResult>(`${doc(id)}/pages/order`, "PUT", { order }),
   verify: (id) => api<VerifySummary>(`${doc(id)}/verify`, "POST"),
-  save: async (id) => {
-    await api(`${doc(id)}/save`, "POST", { choice: "document_only" });
+  save: async (id, body) => {
+    await api(`${doc(id)}/save`, "POST", body);
   },
   output: (id) => apiBlob(`${doc(id)}/output`),
   close: async (id) => {
     await api(doc(id), "DELETE");
+  },
+  relink: async (id, templateId) => {
+    await api(`${doc(id)}/link`, "PUT", { template_id: templateId });
+  },
+  templates: async () => (await api<{ groups: TemplateGroup[] }>("/api/templates")).groups,
+  template: (tid) => api<Template>(tpl(tid)),
+  deleteTemplate: async (tid) => {
+    await api(tpl(tid), "DELETE");
+  },
+  renameTemplate: (tid, body) => api<Template>(tpl(tid), "PATCH", body),
+  history: async (tid) => (await api<{ versions: HistoryEntry[] }>(`${tpl(tid)}/history`)).versions,
+  rollback: (tid, version) => api<Template>(`${tpl(tid)}/rollback`, "POST", { version }),
+  translations: async () => (await api<{ entries: TranslationEntry[] }>("/api/translations")).entries,
+  deleteTranslation: async (entryId) => {
+    await api(`/api/translations/${encodeURIComponent(entryId)}`, "DELETE");
   },
 };
 
@@ -102,7 +147,7 @@ export function fixtureBackend(): Backend {
       wr.fields.push(f);
       return structuredClone(f);
     },
-    setTranslation: async (_id, termId, english) => {
+    setTranslation: async (_id, termId, english, _remember) => {
       const [fieldId, part] = termId.split(".");
       const f = find(fieldId);
       if (part === "name") f.name = english;
@@ -127,15 +172,36 @@ export function fixtureBackend(): Backend {
         can_confirm: duplicates.length === 0,
         save_dialog_needed: true,
         save_choices: { document_only: true, new: false, update: false },
+        suggested: "new",
+        update_targets: [],
+        document_types: [],
+        format_suggestion: "Format A",
+        changes: { renamed: [], added: [], removed: [], type_changed: [], reordered: false },
+        labels: [],
       };
     },
     save: async () => {
-      wr.verified = true;
+      wr.verified = true; // fixture mode saves no template
     },
     output: async () =>
       new Blob([JSON.stringify({ note: "fixture mode: no output is produced" }, null, 2)], {
         type: "application/json",
       }),
     close: async () => {},
+    relink: async () => {},
+    templates: async () => [], // fixture mode has no store
+    template: async () => {
+      throw new Error("fixture mode has no templates");
+    },
+    deleteTemplate: async () => {},
+    renameTemplate: async () => {
+      throw new Error("fixture mode has no templates");
+    },
+    history: async () => [],
+    rollback: async () => {
+      throw new Error("fixture mode has no templates");
+    },
+    translations: async () => [],
+    deleteTranslation: async () => {},
   };
 }

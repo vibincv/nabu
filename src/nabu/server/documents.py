@@ -1,4 +1,5 @@
-"""The document being reviewed: reading job, edits, verify, save and output (FR-6, FR-8). M2.
+"""The document being reviewed: reading job, link, edits, verify, save and output (FR-5.8, FR-6,
+FR-7, FR-8), and the template manager and translation memory routes (FR-7.9 to FR-7.12, FR-9.8).
 
 One document is open at a time. Everything here is in process memory and is released when the
 document is closed (FR-11.3). Every value the user types is registered with the session, so the
@@ -28,6 +29,9 @@ from nabu.ocr.words import Reading, lines_from_words
 from nabu.output import json_out
 from nabu.router import Upload
 from nabu.session import Session
+from nabu.store.store import Store
+from nabu.templates import describe, write
+from nabu.templates import header as template_header
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +39,7 @@ REGION = re.compile(r"^[A-Z]{2}$")
 MAX_NAME = 200
 MAX_VALUE = 10_000
 TERMINAL = ("done", "error", "cancelled")
-TEMPLATES_LATER = "saving templates arrives with templates (M3); choose This document only"
-REMEMBER_LATER = "remembering translations arrives with templates (M3)"
+NO_STORE = "templates are not available in this window"
 
 
 class Conflict(NabuError):
@@ -65,6 +68,11 @@ class ReviewDocument:
     verified_rev: int | None = None
     saved_rev: int | None = None
     verified_at: datetime | None = None
+    cfg: Config = field(default_factory=Config, repr=False)
+    store: Store | None = field(default=None, repr=False)
+    # The template this document is read with, or was saved to (FR-6.12); none before linking.
+    template: dict | None = field(default=None, repr=False)
+    saved_template: tuple[str, int] | None = None  # template id and version for the output
     cancel: threading.Event = field(default_factory=threading.Event, repr=False)
     _events: list[dict] = field(default_factory=list, repr=False)
     _cond: threading.Condition = field(default_factory=threading.Condition, repr=False)
@@ -118,6 +126,7 @@ class ReviewDocument:
                 raise Invalid("a field name cannot be empty")
             f.name = name
             f.translation["name"] = "user"
+            f.name_suggestion = None
         if "value" in body:
             value = _text(body["value"], "value", MAX_VALUE, allow_none=True) or None
             f.value_en = value
@@ -134,6 +143,9 @@ class ReviewDocument:
                 raise Invalid("removed must be true or false")
             f.removed = body["removed"]
         if body.get("accept") is True:  # "suggested" accepted with one click (UX-2.7)
+            if f.name_suggestion:  # the similar template's name (FR-5.6)
+                f.name, f.name_suggestion = f.name_suggestion, None
+                f.translation["name"] = "user"
             for s in ("suggested", "needs_review"):
                 if s in f.status:
                     f.status.remove(s)
@@ -192,11 +204,11 @@ class ReviewDocument:
         if part not in ("name", "value"):
             raise NotFound("no such term")
         f = self._field(field_id)
-        if body.get("remember"):
-            raise Conflict(REMEMBER_LATER)
         english = _text(body.get("english"), "english", MAX_VALUE)
         if not english:
             raise Invalid("the English text cannot be empty")
+        if body.get("remember"):
+            self._remember(f, part, english)
         if part == "name":
             f.name = english
         else:
@@ -206,6 +218,21 @@ class ReviewDocument:
         _sync_not_translated(f)
         self._changed()
         return f
+
+    def _remember(self, f: Field, part: str, english: str) -> None:
+        """FR-9.8: only printed labels go to the translation memory, never values."""
+        if part != "name" or not f.printed_label:
+            raise Invalid("only printed labels can be remembered, never values")
+        if not f.lang:
+            raise Invalid("the label's language is not known, so it cannot be remembered")
+        if self.store is None:
+            raise Conflict(NO_STORE)
+        entry = {"id": "t" + secrets.token_hex(4), "lang": f.lang, "term": f.printed_label,
+                 "english": english, "scope": None}
+        try:
+            self.store.remember_translation(entry, self.session)
+        except NabuError as e:  # a label equal to a value of this document is refused (AR-7)
+            raise Conflict(e.message) from None
 
     def set_header(self, body: dict) -> json_out.Header:
         """Document type and region (FR-6.17). Empty means unknown (null in the output)."""
@@ -255,8 +282,15 @@ class ReviewDocument:
             if seen[f.name.casefold()] > 1:
                 first.setdefault(f.name.casefold(), f.name)
         duplicates = list(first.values())
+        # FR-6.12: no dialog when the linked template is used as it is
+        dialog = self.template is None or write.differs(result, self.template)
         if not duplicates:
             self.verified_rev = self.rev
+            if not dialog:
+                self._confirmed(self.template)
+        templates = self._templates()
+        targets = self._update_targets(templates)
+        doc_type, region = self.header["document_type"], self.header["region"]
         return {
             "fields": len(kept),
             "not_found": sum(1 for f in kept if (f.value_en if f.value_en is not None else f.value) is None),
@@ -264,28 +298,94 @@ class ReviewDocument:
             "not_translated": sum(1 for f in kept if "not_translated" in f.status),
             "duplicates": duplicates,  # FR-6.16: the only check that blocks Verify
             "can_confirm": not duplicates,
-            # FR-6.12: no template is linked before M3, so the dialog always applies
-            "save_dialog_needed": True,
-            "save_choices": {"document_only": True, "new": False, "update": False},
+            "save_dialog_needed": dialog,
+            "save_choices": {"document_only": True, "new": self.store is not None,
+                             "update": bool(targets)},
+            "suggested": "update" if self.template is not None and targets else "new",  # FR-7.2
+            "update_targets": [describe(t) for t in targets],
+            "document_types": sorted({template_header(t).get("document_type") for t in templates
+                                      if template_header(t).get("document_type")}),
+            "format_suggestion": write.next_format_name(templates, doc_type or "", region),
+            "changes": write.changes(result, self.template),  # FR-7.1, names only
+            "labels": write.labels_to_store(result),  # what would be written to disk
         }
 
+    def _templates(self) -> list[dict]:
+        return self.store.templates() if self.store is not None else []
+
+    def _update_targets(self, templates: list[dict]) -> list[dict]:
+        """The linked template, then others of the same document type and region (FR-7.4)."""
+        if self.store is None:
+            return []
+        out = [self.template] if self.template is not None else []
+        doc_type = self.header["document_type"]
+        if doc_type:
+            key = write.type_key(doc_type)
+            mine = template_header(self.template).get("id") if self.template else None
+            out += [t for t in templates if template_header(t).get("document_type_key") == key
+                    and template_header(t).get("region") == self.header["region"]
+                    and template_header(t).get("id") != mine]
+        return out
+
+    def _confirmed(self, t: dict | None) -> None:
+        self.saved_rev = self.rev
+        self.verified_at = datetime.now(UTC)
+        h = template_header(t) if t else {}
+        self.saved_template = (h["id"], h["version"]) if t else None
+
     def save(self, body: dict) -> None:
-        self._ready()
+        """The save dialog's choice (FR-7). Cancel is simply not calling this (FR-7.6)."""
+        result = self._ready()
         choice = body.get("choice")
-        if choice in ("new", "update"):
-            raise Conflict(TEMPLATES_LATER)
-        if choice != "document_only":
+        if choice not in ("document_only", "new", "update"):
             raise Invalid("choice must be document_only, new or update")
         if self.verified_rev != self.rev:
             raise Conflict("verify the document first")
-        self.saved_rev = self.rev
-        self.verified_at = datetime.now(UTC)
+        if choice == "document_only":  # FR-7.5: no template change
+            self._confirmed(None)
+            return
+        if self.store is None:
+            raise Conflict(NO_STORE)
+        reading = self.session.reading
+        if not isinstance(reading, Reading):
+            raise Conflict("the document is not read yet")
+        templates = self._templates()
+        if choice == "new":
+            doc_type = _text(body.get("document_type"), "document type", MAX_NAME)
+            fmt = _text(body.get("format"), "format name", MAX_NAME)
+            region = _text(body.get("region"), "region", 2, allow_none=True) or None
+            if not doc_type or not fmt:
+                raise Invalid("a new template needs a document type and a format name (FR-7.3)")
+            if region is not None and not REGION.match(region):
+                raise Invalid("region must be a two-letter country code in capitals, or empty")
+            t = write.build_new(result, reading, self.cfg, doc_type, region, fmt, templates)
+        else:
+            tid = body.get("template_id")
+            targets = {template_header(x).get("id"): x for x in self._update_targets(templates)}
+            if tid is None and self.template is not None:
+                tid = template_header(self.template).get("id")
+            if tid not in targets:
+                raise Invalid("update needs the linked template, or one of the same document "
+                              "type and region")
+            t = write.build_update(self.store.load_template(tid), result, reading, self.cfg)
+        try:
+            self.store.save_template(t, self.session)
+        except NabuError as e:  # a value in a name or label (AR-7), or a format name in use
+            raise Conflict(e.message) from None
+        h = template_header(t)
+        for f, tf in zip([f for f in result.fields if not f.removed], t["fields"], strict=True):
+            f.template_key = tf["key"]  # this document now matches the saved template
+        self.template = t
+        self.header = {"document_type": h["document_type"], "region": h["region"],
+                       "format": h["format"]["name"]}
+        self._confirmed(t)
 
     def output(self) -> tuple[str, bytes]:
         result = self._ready()
         if self.saved_rev != self.rev or self.verified_at is None:
             raise Conflict("the output is available after Verify and the save choice")
-        doc = json_out.build(result, self.header, self.verified_at)
+        tid, ver = self.saved_template or (None, None)
+        doc = json_out.build(result, self.header, self.verified_at, tid, ver)
         return json_out.file_name(result.source_file), json_out.dumps(doc)
 
     def page_image(self, n: int) -> bytes:
@@ -326,9 +426,11 @@ class DocumentService:
     Model and OCR calls block, so they never run on the server's event loop.
     """
 
-    def __init__(self, cfg: Config, readers: Callable[[], pipeline.Readers]) -> None:
+    def __init__(self, cfg: Config, readers: Callable[[], pipeline.Readers],
+                 store: Store | None = None) -> None:
         self.cfg = cfg
         self._readers = readers
+        self.store = store
         self._lock = threading.Lock()
         self.current: ReviewDocument | None = None
 
@@ -336,9 +438,32 @@ class DocumentService:
         with self._lock:
             if self.current is not None:
                 raise Conflict("a document is already open; close it first")
-            doc = ReviewDocument(uploads=uploads)
+            doc = ReviewDocument(uploads=uploads, cfg=self.cfg, store=self.store)
             self.current = doc
-        threading.Thread(target=self._run, args=(doc,), name="nabu-read", daemon=True).start()
+        self._job(doc, lambda readers, progress: pipeline.run(
+            doc.uploads, self.cfg, doc.session, readers, progress, doc.cancel.is_set,
+            self.store.templates() if self.store is not None else ()))
+        return doc
+
+    def relink(self, doc_id: str, body: dict) -> ReviewDocument:
+        """FR-5.8: read again with the chosen template, or with none (template_id null)."""
+        doc = self.get(doc_id)
+        doc._ready()
+        tid = body.get("template_id")
+        if tid is not None and not isinstance(tid, str):
+            raise Invalid("template_id must be a template id or null")
+        if tid is not None and self.store is None:
+            raise Conflict(NO_STORE)
+        try:
+            t = self.store.load_template(tid) if tid is not None and self.store else None
+        except NabuError as e:
+            raise NotFound(e.message) from None
+        doc.state, doc.result, doc.template = "reading", None, None
+        doc.rev += 1  # any earlier Verify no longer applies
+        with doc._cond:
+            doc._events = []
+        self._job(doc, lambda readers, progress: pipeline.relink(
+            doc.session, self.cfg, readers, t, progress, doc.cancel.is_set))
         return doc
 
     def get(self, doc_id: str) -> ReviewDocument:
@@ -359,13 +484,18 @@ class DocumentService:
         if doc is not None:
             doc.close()
 
-    def _run(self, doc: ReviewDocument) -> None:
+    def _job(self, doc: ReviewDocument,
+             work: Callable[[pipeline.Readers, pipeline.Progress], WorkingResult]) -> None:
+        threading.Thread(target=self._run, args=(doc, work), name="nabu-read",
+                         daemon=True).start()
+
+    def _run(self, doc: ReviewDocument,
+             work: Callable[[pipeline.Readers, pipeline.Progress], WorkingResult]) -> None:
         def progress(done: int, total: int, stage: str) -> None:
             doc.emit({"type": "progress", "stage": stage, "done": done, "total": total})
 
         try:
-            result = pipeline.run(doc.uploads, self.cfg, doc.session, self._readers(), progress,
-                                  doc.cancel.is_set)
+            result = work(self._readers(), progress)
         except pipeline.Cancelled:
             doc.state = "cancelled"
             doc.emit({"type": "cancelled"})
@@ -384,9 +514,133 @@ class DocumentService:
             doc.emit({"type": "cancelled"})
             return
         doc.result = result
+        link = result.link or {}
+        about = link.get("template") or {}
         guess = result.country_guess
-        doc.header = {"document_type": result.type_guess,
-                      "region": guess if guess and REGION.match(guess) else None, "format": None}
+        if link.get("outcome") == "linked":  # the template's header (FR-5.7)
+            doc.template = self._template(link.get("template_id"))
+            doc.header = {"document_type": about.get("document_type"),
+                          "region": about.get("region"), "format": about.get("format")}
+        elif link.get("outcome") == "similar":  # FR-5.6: its type and region pre-filled
+            doc.header = {"document_type": about.get("document_type"),
+                          "region": about.get("region"), "format": None}
+        else:
+            doc.header = {"document_type": result.type_guess,
+                          "region": guess if guess and REGION.match(guess) else None,
+                          "format": None}
         doc.state = "ready"
-        doc.emit({"type": "done", "fields": len(result.fields),
-                  "link": "none"})  # linking arrives in M3
+        doc.emit({"type": "done", "fields": len(result.fields), "link": link.get("outcome")})
+
+    def _template(self, template_id: str | None) -> dict | None:
+        if self.store is None or template_id is None:
+            return None
+        return self.store.load_template(template_id)
+
+    # ---- template manager and translation memory (FR-7.9 to FR-7.12, FR-9.8) --------------
+    def _values(self) -> set[str]:
+        """Values of the open document: no template write may contain one (AR-7)."""
+        doc = self.current
+        return doc.session.values() if doc is not None else set()
+
+    def _store(self) -> Store:
+        if self.store is None:
+            raise Conflict(NO_STORE)
+        return self.store
+
+    def templates(self) -> list[dict]:
+        """Grouped by document type, then region, then format (FR-7.9, UX-4)."""
+        groups: dict[str, dict[str, list[dict]]] = {}
+        names: dict[str, str] = {}
+        for t in self._store().templates():
+            h = template_header(t)
+            key = h.get("document_type_key", "")
+            names.setdefault(key, h.get("document_type") or key)
+            groups.setdefault(key, {}).setdefault(h.get("region") or "", []).append(
+                {**describe(t), "fields": len(t.get("fields") or []),
+                 "updated_at": h.get("updated_at"),
+                 "field_names": [f.get("name") for f in t.get("fields") or []]})
+        return [{"document_type": names[k], "regions": [
+                    {"region": r or None,
+                     "formats": sorted(fs, key=lambda x: (x["format"] or "").casefold())}
+                    for r, fs in sorted(groups[k].items())]}
+                for k in sorted(groups, key=lambda k: names[k].casefold())]
+
+    def template(self, template_id: str) -> dict:
+        try:
+            return self._store().load_template(template_id)
+        except Conflict:
+            raise
+        except NabuError as e:
+            raise NotFound(e.message) from None
+
+    def delete_template(self, template_id: str) -> None:
+        self.template(template_id)
+        self._store().delete_template(template_id)
+
+    def history(self, template_id: str) -> list[dict]:
+        self.template(template_id)
+        return self._store().history_entries(template_id)
+
+    def rollback(self, template_id: str, body: dict) -> dict:
+        version = body.get("version")
+        if not isinstance(version, int) or isinstance(version, bool):
+            raise Invalid("version must be a number")
+        self.template(template_id)
+        try:
+            self._store().rollback_template(template_id, version, self._values())
+        except NabuError as e:
+            raise Conflict(e.message) from None
+        return self.template(template_id)
+
+    def rename(self, template_id: str, body: dict) -> dict:
+        """FR-7.11: a format renames this template; a document type renames it in all of its
+        templates. Every name is checked before anything is written."""
+        t = self.template(template_id)
+        h = template_header(t)
+        store = self._store()
+        if "format" in body:
+            name = _text(body.get("format"), "format name", MAX_NAME)
+            if not name:
+                raise Invalid("a format name cannot be empty")
+            moves = [(h["id"], {"format": {"id": write.format_id(name), "name": name}},
+                      {"kind": "renamed", "format": [h["format"]["name"], name]})]
+        elif "document_type" in body:
+            name = _text(body.get("document_type"), "document type", MAX_NAME)
+            if not name:
+                raise Invalid("a document type cannot be empty")
+            key = h["document_type_key"]
+            moves = [(template_header(x)["id"],
+                      {"document_type": name, "document_type_key": write.type_key(name)},
+                      {"kind": "renamed", "document_type": [h["document_type"], name]})
+                     for x in store.templates()
+                     if template_header(x).get("document_type_key") == key]
+        else:
+            raise Invalid("rename needs a document_type or a format")
+        self._check_free(moves)
+        try:
+            for tid, changes, note in moves:
+                store.move_template(tid, changes, note, self._values())
+        except NabuError as e:
+            raise Conflict(e.message) from None
+        return self.template(template_id)
+
+    def _check_free(self, moves: list[tuple[str, dict, str | dict]]) -> None:
+        moving = {m[0] for m in moves}
+        taken = set()
+        for t in self._store().templates():
+            h = template_header(t)
+            if h.get("id") not in moving:
+                taken.add((h.get("document_type_key"), h.get("region"), h["format"]["id"]))
+        by_id = {template_header(t)["id"]: template_header(t) for t in self._store().templates()}
+        for tid, changes, _ in moves:
+            h = {**by_id[tid], **changes}
+            if (h["document_type_key"], h.get("region"), h["format"]["id"]) in taken:
+                raise Conflict("another template already uses this document type, region and "
+                               "format; choose a different name")
+
+    def translations(self) -> list[dict]:
+        return list(self._store().translations()["entries"])
+
+    def delete_translation(self, entry_id: str) -> None:
+        if not self._store().delete_translation(entry_id):
+            raise NotFound("no such remembered translation")

@@ -30,3 +30,12 @@
   Rule: a UI milestone is not done until one real end-to-end run in a browser, checking the DOM after
   close, not only screenshots.
 
+- **2026-10-14: Tolerances must match what is already compensated.** The template value box was
+  widened vertically by the full anchor tolerance (30 grid units), but lines were 36 units apart, so
+  every value took the next line's first word. The box was already placed from the label found on
+  this document, so scan shift was compensated once already. Rule: when a position is derived from
+  a matched anchor, size the slack to the remaining error (value length, line height), not the
+  global tolerance; test with lines at normal spacing, not spread out.
+- **2026-10-14: The heredoc rule, once more.** A Python edit in `python - <<'EOF'` with no
+  backslash still failed on quoting (unexpected EOF). Writing the script to the scratchpad with the
+  Write tool and running it worked first time. Rule: large scripted edits go into a file, always.

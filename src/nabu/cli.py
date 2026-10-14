@@ -62,12 +62,17 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("name", nargs="?", default=None,
                     help="default: the active model, else the recommended one")
 
-    t = sub.add_parser("templates", help="list, show, delete, history",
+    t = sub.add_parser("templates", help="list, show, delete, history, rollback",
                        epilog="example: nabu templates list")
     tsub = t.add_subparsers(dest="tcmd", required=True)
-    tsub.add_parser("list")
+    tsub.add_parser("list", epilog="example: nabu templates list")
     for name in ("show", "delete", "history"):
-        tsub.add_parser(name).add_argument("template_id")
+        tsub.add_parser(name, epilog=f"example: nabu templates {name} tpl_vendor_invoice_DE_format-a"
+                        ).add_argument("template_id")
+    rb = tsub.add_parser("rollback", help="restore an earlier version as a new version (FR-7.12)",
+                         epilog="example: nabu templates rollback tpl_vendor_invoice_DE_format-a 1")
+    rb.add_argument("template_id")
+    rb.add_argument("version", type=int)
 
     f = sub.add_parser("forget", help="delete learned data and report what was removed",
                        epilog="example: nabu forget --all")
@@ -154,6 +159,26 @@ def _langs(args: argparse.Namespace, store) -> None:  # type: ignore[no-untyped-
         _out(args, f"{pack.language} OCR pack installed in {d}")
 
 
+def _change(c: dict | None) -> str:
+    """One line per version: what changed, by field names only."""
+    if not c:
+        return ""
+    kind = c.get("kind", "")
+    if kind == "rolled_back":
+        return f"rolled back to v{c.get('to_version')}"
+    if kind == "renamed":
+        old, new = c.get("format") or c.get("document_type") or ["?", "?"]
+        return f"renamed {old} -> {new}"
+    parts = [kind]
+    parts += [f"renamed {a} -> {b}" for a, b in c.get("renamed", [])]
+    parts += [f"added {n}" for n in c.get("added", [])]
+    parts += [f"removed {n}" for n in c.get("removed", [])]
+    parts += [f"type of {n}" for n in c.get("type_changed", [])]
+    if c.get("reordered"):
+        parts.append("reordered")
+    return "; ".join(parts)
+
+
 def _translations(args: argparse.Namespace, store) -> None:  # type: ignore[no-untyped-def]
     if args.trcmd == "list":
         for e in store.translations()["entries"]:
@@ -229,7 +254,13 @@ def main(argv: list[str] | None = None) -> int:
                 for r in store.delete_template(args.template_id):
                     _out(args, f"removed {r}")
             elif args.tcmd == "history":
-                _out(args, " ".join(f"v{v}" for v in store.history(args.template_id)))
+                for e in store.history_entries(args.template_id):
+                    _out(args, f'v{e["version"]}  {e["updated_at"] or "?"}  '
+                               f'{_change(e["change"])}{"  (current)" if e["current"] else ""}')
+            elif args.tcmd == "rollback":
+                # No document is open in the CLI, so no session values exist to guard against.
+                store.rollback_template(args.template_id, args.version, ())
+                _out(args, f"rolled back {args.template_id} to the fields of v{args.version}")
         elif args.cmd == "forget":
             removed = store.forget(args.scope)
             _out(args, "\n".join(f"removed {r}" for r in removed) or "nothing to remove")

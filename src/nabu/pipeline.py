@@ -4,10 +4,12 @@ The model is reached only through nabu.model.client.ModelClient (build_client re
 no-model mode, FR-3.4). The egress guard is installed by every network entry point (the model
 HTTP layer and the review server), so library callers are covered too.
 
-Flow (7.3, without linking, which is M3): route -> read (text layer, office, text, or render +
-OCR) -> language per page -> discovery (rules for digital pages, one model call per scanned page)
--> ground -> merge duplicates -> English by value-type rules, memory, then model -> number
-repeats -> working result. Everything stays in memory (AD-8). Calls block: run this in a worker
+Flow (7.3): route -> read (text layer, office, text, or render + OCR) -> language per page ->
+link against every template, words and boxes only (FR-5.1) -> linked: values at the template's
+anchors, crop re-read of failed fields (FR-5.5, FR-5.9); otherwise discovery (rules for digital
+pages, one model call per scanned page) -> ground -> merge duplicates -> similar: name
+suggestions (FR-5.6) -> English by value-type rules, memory, then model -> number repeats ->
+working result. Everything stays in memory (AD-8). Calls block: run this in a worker
 thread, never on the server's event loop (AD-13). `progress` is called after every page;
 `cancelled` is checked between pages (Section 14: reading stops after the current page).
 """
@@ -15,7 +17,7 @@ thread, never on the server's event loop (AD-13). `progress` is called after eve
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from nabu import discovery
@@ -34,6 +36,9 @@ from nabu.ocr.engine import RapidOcrEngine
 from nabu.ocr.words import Page, Reading
 from nabu.router import Upload, check_combination, classify
 from nabu.session import Session
+from nabu.templates import header as template_header
+from nabu.templates import link as linking
+from nabu.templates import read as template_read
 
 log = logging.getLogger(__name__)
 
@@ -201,22 +206,92 @@ def discover(reading: Reading, cfg: Config, readers: Readers, progress: Progress
                          country_guess=country_guess, messages=_unique(messages))
 
 
+def read_with_template(reading: Reading, t: dict, lk: linking.Link, cfg: Config,
+                       readers: Readers, progress: Progress = _noop,
+                       cancelled: Callable[[], bool] = _never) -> WorkingResult:
+    """A linked document: the template's field names in its order, values at its anchors."""
+    messages: list[str] = []
+    page_msgs: dict[int, list[str]] = {p.n: list(p.notes) for p in reading.pages}
+    if lk.missing_pages:  # FR-5.2: only some pages of the template were uploaded
+        pages = ", ".join(str(n) for n in lk.missing_pages)
+        messages.append(f"The template has more pages than this document; page {pages} "
+                        "is missing, so its fields are shown as not found.")
+    progress(0, 1, "reading fields")
+    fields, model_used = template_read.read_linked(reading, t, cfg, readers.model,
+                                                   lk.missing_pages, messages, cancelled)
+    progress(1, 1, "reading fields")
+    h = template_header(t)
+    progress(0, 1, "translating")
+    outcome = translate.translate_fields(fields, readers.memory, readers.model, h.get("region"),
+                                         h.get("document_type"))
+    progress(1, 1, "translating")
+    pages = [PageInfo(n=p.n, width_px=p.width_px, height_px=p.height_px, lang=p.lang,
+                      text=p.text, messages=page_msgs[p.n]) for p in reading.pages]
+    return WorkingResult(source_file=reading.file_name, pages=pages, fields=fields,
+                         route=reading.route,
+                         model_used=model_used or outcome.model_calls > 0,
+                         messages=_unique(messages + outcome.messages))
+
+
+AUTO = object()  # analyse(): link automatically
+
+
+def analyse(reading: Reading, cfg: Config, readers: Readers, templates: Sequence[dict] = (),
+            progress: Progress = _noop, cancelled: Callable[[], bool] = _never,
+            choice: object = AUTO) -> WorkingResult:
+    """Link, then read with the template or discover (7.2, 7.3). `choice` is the user's pick
+    (FR-5.8): a template, or None for "no template"; AUTO links by score."""
+    if choice is AUTO:
+        lk = linking.link(reading, templates, cfg)
+    elif choice is None:
+        lk = linking.Link("none", chosen=True)
+    else:
+        lk = linking.chosen(reading, choice, cfg)  # type: ignore[arg-type]
+    log.info("link outcome: %s (score %.2f)", lk.outcome, lk.score)
+    if lk.outcome == "linked" and lk.template is not None:
+        result = read_with_template(reading, lk.template, lk, cfg, readers, progress, cancelled)
+    else:
+        result = discover(reading, cfg, readers, progress, cancelled)
+        if lk.outcome == "similar" and lk.template is not None:
+            template_read.apply_similar(result.fields, lk.template)
+    result.link = lk.to_dict()
+    return result
+
+
 def _unique(items: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
 
 
-def run(uploads: list[Upload], cfg: Config, session: Session, readers: Readers,
-        progress: Progress = _noop, cancelled: Callable[[], bool] = _never) -> WorkingResult:
-    """Read one document into a working result held by the session (FRD 10.4 read_document +
-    discover + translate_fields). Every value found is registered with the session, so the store
-    refuses to write it anywhere (AR-7)."""
-    reading = read_document(uploads, cfg, readers.ocr, progress, cancelled)
-    result = discover(reading, cfg, readers, progress, cancelled)
+def _hold(session: Session, reading: Reading, result: WorkingResult) -> None:
+    """Every value found is registered with the session, so the store refuses to write it
+    anywhere (AR-7)."""
     for f in result.fields:
         session.register_value(f.value)
         if f.value_en != f.value:
             session.register_value(f.value_en)
     session.page_images = {p.n: p.image.data for p in reading.pages if p.image is not None}
-    session.reading = reading  # words with boxes, for fields the user draws (FR-6.9)
+    session.reading = reading  # words with boxes: drawn fields (FR-6.9), re-link (FR-5.8)
     session.working_result = result.to_dict()
+
+
+def run(uploads: list[Upload], cfg: Config, session: Session, readers: Readers,
+        progress: Progress = _noop, cancelled: Callable[[], bool] = _never,
+        templates: Sequence[dict] = ()) -> WorkingResult:
+    """Read one document into a working result held by the session (FRD 10.4 read_document +
+    link + read_with_template or discover + translate_fields)."""
+    reading = read_document(uploads, cfg, readers.ocr, progress, cancelled)
+    result = analyse(reading, cfg, readers, templates, progress, cancelled)
+    _hold(session, reading, result)
+    return result
+
+
+def relink(session: Session, cfg: Config, readers: Readers, choice: dict | None,
+           progress: Progress = _noop, cancelled: Callable[[], bool] = _never) -> WorkingResult:
+    """FR-5.8: read the open document again with another template, or with none. Uses the
+    reading kept in memory: no upload, rendering or OCR again."""
+    reading = session.reading
+    if not isinstance(reading, Reading):
+        raise NabuError("the document is not read yet")
+    result = analyse(reading, cfg, readers, (), progress, cancelled, choice)
+    _hold(session, reading, result)
     return result

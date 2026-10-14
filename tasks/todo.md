@@ -1,3 +1,98 @@
+# M3 Templates: linking, saving, reuse (approved 2026-10-14: synthetic thresholds, page aspect in header) - done
+
+Scope: FR-5, FR-7, FR-6.5, FR-6.12 (real rule), FR-9.8 remember, FR-12 templates/translations,
+DD-2, DD-4, API 10.2 template and translation routes, UX-3, UX-4, AD-6 crop re-read.
+Already in place: Store.save_template (AR-7 guard, versions/, atomic), templates(), delete,
+history(), translation memory read path, config thresholds, CLI list/show/delete/history.
+Rule kept: linking uses only words and boxes from reading; no model call (FR-5.1).
+
+## Decisions to confirm
+- M3-1 Thresholds (FR-5.3, Q9): tune on synthetic fixtures only and keep them provisional,
+  unless the owner supplies an evaluation set.
+- M3-2 Page shape (FR-5.2 "different page shape scores zero") needs something DD-2 does not list:
+  store `pages: [{"aspect": w/h rounded to 0.01}]` in the template header. No values; reported as
+  an FRD addition.
+- M3-3 Ambiguous: discovery result is shown with a "choose a template" banner; picking one
+  re-reads from the in-memory reading (no OCR or upload again).
+- M3-4 History entries: each version's header carries `change: {renamed, added, removed,
+  reordered}` with field names only; `history` lists versions with these.
+
+## 1. Template write (templates/write.py)
+- [x] build_new(result, reading, header, format_name, cfg) -> DD-2 dict: id, key slugs, version 1,
+      fields in verified order (FR-7.8), anchor = printed label + label_box + value_offset
+      (value box relative to anchor box), tolerance; null positions for office/text (DD-2.4);
+      removed_labels from removed fields (DD-2.5).
+- [x] build_update(template, ...) -> version + 1 with change summary (FR-7.4).
+- [x] next_format_name (Format A, B, ...) per type and region (FR-7.3).
+- [x] rollback(template_id, version): restores as a new version (FR-7.12); rename type/format (FR-7.11).
+
+## 2. Linking (templates/link.py)
+- [x] score(reading, template, cfg): share of anchors found on their page inside box widened by
+      tolerance; label match tolerant to case, spacing, 0/O and 1/l; fewer pages -> score on pages
+      present plus missing-page note; more pages or other shape -> 0; label-only for AD-15.
+- [x] link(reading, templates, cfg) -> outcome linked / ambiguous / similar / none + candidates (FR-5.4).
+
+## 3. Template read (templates/read.py)
+- [x] For each template field: find anchor, value = words inside anchor box + offset (with
+      tolerance); label-only files: rest of the line after the label. source "template",
+      status from_template; missing -> not_found (FR-5.5).
+- [x] Missing field with model and template_reread on -> crop around expected box to the model,
+      source model_reread; else needs_review (FR-5.9, AD-6).
+- [x] Similar: discovered printed labels matching an anchor get the template name as a one-click
+      suggestion (FR-5.6). removed_labels hidden on linked and similar.
+
+## 4. Pipeline and documents
+- [x] pipeline.run: link after reading, before any model call; linked -> template read,
+      otherwise discovery. Link result into DD-1 `link`.
+- [x] PUT /api/documents/{id}/link: template id or none; re-read from session.reading (FR-5.8).
+- [x] verify: save dialog needed only if not linked or names/types/field set differ (FR-6.12);
+      save choices and suggested choice (FR-7.2); list of labels to be stored (FR-7.1).
+- [x] save: new / update / document_only through Store; Cancel saves nothing (FR-7.5, 7.6).
+- [x] translations PATCH remember -> Store.remember_translation, labels only (FR-9.8);
+      memory reloaded for the next document.
+- [x] Routes: GET /api/templates, GET/DELETE/PATCH /api/templates/{id}, GET .../history,
+      POST .../rollback, GET/DELETE /api/translations[/{id}].
+
+## 5. CLI
+- [x] templates rollback <id> <version>; history shows the change summaries (FR-7.13).
+
+## 6. UI
+- [x] Link banner with the four FR-5.7 texts; template picker (ambiguous, change link).
+- [x] Save dialog: three choices, "suggested" label, type (existing names), region, format
+      (default next letter), renamed/added/removed names and labels to be stored; Save disabled
+      until filled (UX-3).
+- [x] Template manager screen (UX-4): tree type -> region -> format, view, delete with named
+      confirmation, rename, history, roll back.
+- [x] Name picker from same-type templates (FR-6.5); "Remember this translation" box (FR-9.8).
+
+## 7. Tests and evidence
+- [x] FR-5 acceptance (a)-(f) and FR-7 acceptance (a)-(f) as tests on synthetic fixtures,
+      including two formats of one type and region, and a near-identical pair (ambiguous).
+- [x] After every save: scan the whole store for session values (none); linking makes no model call.
+- [x] Browser run in Chrome: save Format A, a second document links to it, update removes a
+      field, roll back, delete; DOM checked after close.
+
+## Review (2026-10-14)
+- Results: 331 passed, 4 skipped (20 new: tests/test_templates_api.py 13 covering FR-5 (a)-(f) and
+  FR-7 (a)-(f), tests/test_link.py 6 on scans with fake OCR and the stub model, 1 CLI); ruff, tsc clean.
+- Browser run (Chrome, `nabu serve` with a temporary NABU_HOME, synthetic PDFs): save as new with two
+  renames -> second document linked with names, values and "from your template"; remove a field ->
+  Update suggested -> v2; history; roll back -> v3; rename format -> v4; half-moved layout -> similar
+  with "use <name>" suggestions and header pre-filled; Change template -> linked read; delete with a
+  named confirmation. After close: no values in the DOM; store held only the log (outcomes and
+  scores, no values); empty template folders pruned.
+- Bugs found: value box took the next line (vertical slack was the full anchor tolerance; now half the
+  value height, since the box is already placed from the found label); `.wide` dialogs capped at
+  440px by the base dialog rule.
+- Gaps: thresholds and SHAPE_TOLERANCE (0.10) are provisional (synthetic only, Q9). "Remember this
+  translation" tested through the API only, not clicked in the browser. Updating a template from an
+  unlinked document replaces its fields (matching is by template key, not by label). Crop re-read
+  tested with the stub model only, not qwen3.5:9b. Keyboard drawing (FR-6.13) still open from M2.
+- FRD additions (reported, not written into the FRD): template header `pages` (aspect per page) and
+  `change` (per version, names only); DD-1 `link.template`, `missing_pages`, `chosen`; field
+  `template_key`, `name_suggestion`; verify returns `suggested`, `update_targets`, `document_types`,
+  `format_suggestion`, `changes`, `labels`; PUT link returns 202 and re-reads from memory.
+
 # M2 Review and output (approved 2026-10-14: D1 doc-only dialog, plan without first-run) - done
 
 Scope per FRD 15.2: FR-6, FR-8, FR-11.3, UX-1, UX-2, API 10.2 (document routes).
