@@ -42,12 +42,24 @@ _WORDS: dict[str, frozenset[str]] = {
 }
 _LETTERS = {"de": "äöüß", "fr": "éèêàçùœ", "es": "ñ¿¡áíóú", "pt": "ãõç", "it": "àèìòù",
             "nl": "ĳ"}
+# German and Dutch labels are compounds ("Rechnungsdatum", "Klantnummer") that rarely match a whole
+# word. A long word that starts or ends with a long vocabulary word counts half.
+_STEMS = {lang: tuple(w for w in vocab if len(w) >= 5) for lang, vocab in _WORDS.items()}
+_COMPOUND_MIN = 8
 _TOKEN = re.compile(r"[^\W\d_]+", re.UNICODE)
 _UK = frozenset("іїєґ")  # letters Russian does not use
 
 
 def scripts(text: str) -> Counter[str]:
     return Counter(s for s in (script_of(c) for c in text) if s)
+
+
+def _word_score(word: str, lang: str) -> float:
+    if word in _WORDS[lang]:
+        return 1.0
+    if len(word) >= _COMPOUND_MIN and any(word.startswith(s) or word.endswith(s) for s in _STEMS[lang]):
+        return 0.5
+    return 0.0
 
 
 def detect(text: str) -> str | None:
@@ -64,7 +76,7 @@ def detect(text: str) -> str | None:
         return _SCRIPT_LANG.get(script)
     # single letters ("a", "e", "y") are words in several languages and in every ID: ignored
     words = [unicodedata.normalize("NFC", w.lower()) for w in _TOKEN.findall(text) if len(w) > 1]
-    scores = {lang: sum(w in vocab for w in words) for lang, vocab in _WORDS.items()}
+    scores = {lang: sum(_word_score(w, lang) for w in words) for lang in _WORDS}
     low = text.lower()
     for lang, letters in _LETTERS.items():
         scores[lang] += sum(low.count(c) for c in letters) * 0.5

@@ -2,7 +2,8 @@
 
 Order for every label and every translatable value (FR-9.5, AD-12):
 1. Already English, or kept by rule (name, id, number)      -> not_needed
-2. Dates -> ISO 8601 using the region for day-month order; ambiguous -> printed form + needs_review
+2. Dates -> ISO 8601, day-month order from the region, else a day-first language;
+   ambiguous -> printed form + needs_review
 3. Amounts -> "<number> <ISO 4217>"; no currency known -> printed form + needs_review
 4. Translation memory                                      -> memory
 5. The model, one text-only call per page and language    -> translated / low_confidence
@@ -44,7 +45,7 @@ def apply_value_rules(f: Field, region: str | None) -> bool:
         f.translation["value"] = "not_needed"
         return False
     if f.value_type == "date":
-        d = values.parse_date(f.value, region)
+        d = values.parse_date(f.value, region, f.lang)
         if d is None or d.iso is None:
             f.value_en = f.value
             f.flag("needs_review")

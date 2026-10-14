@@ -36,6 +36,9 @@ _KO = re.compile(r"^\s*(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*$")
 _DMY = re.compile(r"^\s*(\d{1,2})[-./](\d{1,2})[-./](\d{2}|\d{4})\.?\s*$")
 # Regions that write month first (en-US style). Everyone else is day first.
 MONTH_FIRST = frozenset({"US", "PH", "FM", "MH", "PW", "GU", "AS", "MP", "PR", "VI", "BZ"})
+# Languages whose regions all write day first: with no region set, the language decides the order
+# (owner decision 2026-10-14). English is not here (US is month first), so it stays ambiguous.
+DAY_FIRST_LANGS = frozenset({"de", "fr", "es", "it", "pt", "nl"})
 
 _ID = re.compile(r"^(?=.*\d)[A-Za-z0-9][A-Za-z0-9/._#-]*$")
 
@@ -58,7 +61,16 @@ class DateParse:
     ambiguous: bool  # day-month order unknown (FR-9.6: keep printed form, needs review)
 
 
-def parse_date(text: str, region: str | None) -> DateParse | None:
+def _month_first(region: str | None, lang: str | None) -> bool | None:
+    """The day-month order: the region decides, else the language; None when unknown."""
+    if region is not None:
+        return region in MONTH_FIRST
+    if lang in DAY_FIRST_LANGS:
+        return False
+    return None
+
+
+def parse_date(text: str, region: str | None, lang: str | None = None) -> DateParse | None:
     """None when `text` is not a date. Otherwise the ISO form, or ambiguous."""
     for rx in (_YMD, _KO):
         m = rx.match(text)
@@ -72,17 +84,18 @@ def parse_date(text: str, region: str | None) -> DateParse | None:
     as_dmy, as_mdy = _valid(y, b, a), _valid(y, a, b)
     if not as_dmy and not as_mdy:
         return None
+    month_first = _month_first(region, lang)
     if as_dmy and as_mdy:
         if as_dmy == as_mdy:  # 05.05.2026 reads the same both ways
             return DateParse(as_dmy.isoformat(), False)
-        if region is None:
+        if month_first is None:
             return DateParse(None, True)
-        chosen = as_mdy if region in MONTH_FIRST else as_dmy
+        chosen = as_mdy if month_first else as_dmy
         return DateParse(chosen.isoformat(), False)
     one = as_dmy or as_mdy
     assert one is not None
-    if region is not None and (as_mdy if region in MONTH_FIRST else as_dmy) is None:
-        # the only valid reading contradicts the region's order: a misprint or a wrong region
+    if month_first is not None and (as_mdy if month_first else as_dmy) is None:
+        # the only valid reading contradicts the known order: a misprint or a wrong region/language
         return DateParse(None, True)
     return DateParse(one.isoformat(), False)
 
