@@ -2,7 +2,7 @@
 
 Nabu reads documents on your own machine. You check every field it finds and correct anything wrong. It then gives you a JSON file. Nothing leaves the machine, and Nabu never stores the values it reads.
 
-> **Status:** M1 foundation. This version has the privacy guards, the store, the CLI, the review server and a review-UI shell that runs on a synthetic fixture. Reading documents comes next (see [Roadmap](#roadmap)).
+> **Status:** M1 reading engine. The library reads PDFs (text layer or scan), images, office and text files; finds fields with fixed rules (digital) or the local model (scans); and gives English output by value-type rules. The review window does not use it yet (M2), and templates come in M3 (see [Roadmap](#roadmap)).
 >
 > "Nabu" is a codename until the trademark search is done (FRD Q10).
 
@@ -13,8 +13,8 @@ The source of truth is the FRD: *Nabu — Functional Requirements Document v1.1*
 You need Python 3.11+, [uv](https://docs.astral.sh/uv/) and Node 20+.
 
 ```bash
-uv sync                      # Python deps + dev tools
-uv run pytest                # offline test suite
+uv sync --extra read         # Python deps + reading stack (OCR, PDF, office) + dev tools
+uv run pytest                # offline test suite (reading tests skip without --extra read)
 uv run ruff check .
 
 cd ui && npm ci && npm run build && cd ..   # builds the UI into src/nabu/server/ui_dist
@@ -43,6 +43,12 @@ To keep test data away from your real store, set `NABU_HOME=/tmp/nabu-dev`.
 | The first browser to open the review window claims it (HttpOnly cookie); other programs and users get "already open", never the token. WebSockets are refused | `nabu/server/app.py` | `tests/test_server.py` |
 | The UI turns off spell-check, autocomplete and translate (FR-6.18) and loads nothing remote | `ui/` | — |
 | There is no CLI command that reads documents (FR-12.2) | `nabu/cli.py` | `tests/test_model_and_cli.py` |
+| OCR models are always passed by path, so the OCR engine never downloads anything; it runs under the egress guard | `nabu/ocr/engine.py` | `tests/test_ocr.py` |
+| `nabu langs pull` is the one command that uses the internet (AR-3 exception): pinned URLs, sha256 checked, refused inside any process that has the guard installed (the review server) | `nabu/ocr/packs.py`, `nabu/cli.py` | `tests/test_cli_m1.py` |
+| File type by extension **and** content; unsupported, empty, encrypted, corrupt and mismatched files each get a named message (FR-2) | `nabu/router.py` | `tests/test_router.py` |
+| Discovery never invents a value: a model value not found on the page as printed is marked "needs review"; a label with no value is kept empty (FR-4.5) | `nabu/pipeline.py`, `nabu/fields/grounding.py` | `tests/test_pipeline.py` |
+| Names, IDs and numbers are never translated; a translation the model returns unchanged is "untranslated", never a guess (FR-9.6, 9.7) | `nabu/lang/translate.py` | `tests/test_translate.py` |
+| Every value read is registered with the session, so the store refuses to write it anywhere (AR-7) | `nabu/pipeline.py` | `tests/test_pipeline.py` |
 
 ### Known residual risks (documented, not fixed)
 
@@ -51,6 +57,8 @@ To keep test data away from your real store, set `NABU_HOME=/tmp/nabu-dev`.
 - **Browser extensions.** In a normal browser, extensions can read the review window. FRD Q21 decides whether to use a native window instead.
 - **The no-values guard has blind spots.** It catches only values Nabu identified as field values in the current session. Identifying printed labels, such as a letterhead, are FRD Q22. A value rewritten in another format (a date stored as `2026-10-01` instead of `01.10.2026`) is not detected.
 - **"Values never on disk" holds for Nabu's own process only.** The browser showing the review window can write what it shows to disk: session restore saves typed form text, and browser crash reports can hold page contents. The operating system can page memory to its swap or hibernation file. The model runtime is a separate program with its own logs. Nabu writes none of these and cannot prevent them.
+- **`nabu langs pull` reaches the internet.** It downloads only the pinned pack files and checks their sha256 before installing, and it cannot run inside the review server's process. The download itself is visible to the network.
+- **`doctor` runs `nvidia-smi`** when it exists, to read GPU memory. It is a local program with fixed arguments and a 2-second limit; nothing runs during reading.
 - **The window cookie is not port-specific.** If the user opens, in the same browser, a page served by a hostile program on another local port, that program receives the window cookie and could open the review window. It needs a hostile local program and the user's click.
 
 ## Layout
@@ -67,8 +75,14 @@ src/nabu/
   model/            pluggable model layer (FR-10): client, runtimes, profiles, tiers, evaluate
   server/           review window API + UI host (10.2)
   schemas/          output JSON Schema (DD-3)
-  pipeline.py router.py extract/ ocr/ lang/ discovery/ fields/ templates/ output/
-                    stubs, one docstring each, filled in M1–M3
+  pipeline.py       the reading flow (AR-1): route, read, OCR, discover, translate
+  router.py         file type by extension and content (FR-2)
+  extract/          PDF text layer, page rendering, office and text files (FR-3)
+  ocr/              OCR engine, word/line/page types, language packs (AD-1)
+  discovery/        fixed rules for digital files, model call for scans (FR-4)
+  fields/           working result types, grounding on OCR words, value shapes (AD-2, FR-9.6)
+  lang/             language detection, translation memory read path, translation (FR-9)
+  templates/ output/  stubs, filled in M2-M3
 ui/                 Vite + TypeScript review UI; builds into src/nabu/server/ui_dist
 fixtures/           synthetic only, never real documents
 tests/              offline; tests/stub_ollama.py mimics the runtime
@@ -76,7 +90,7 @@ tests/              offline; tests/stub_ollama.py mimics the runtime
 
 ## Dependency rules
 
-- **Reading stack.** It is the `read` extra (`uv sync --extra read`). It stays optional until M0 confirms install size against NFR-2.
+- **Reading stack.** It is the `read` extra (`uv sync --extra read`): 292 MB on Windows, against a 300 MB budget (NFR-2, owner decision 2026-10-13). OCR is `rapidocr` 3.10 (pinned minor: the adapter relies on its call flags and word boxes) with its bundled models. Korean needs `nabu langs pull ko` (13 MB). Measurements: `tasks/m0-ocr.md`.
 - **Licences.** Check the licence of every new dependency. Do **not** add PyMuPDF/fitz, which is AGPL-3.0. Render PDFs with pypdfium2.
 - **Model.** The model is a config value, never hard-coded (FR-10.2). The default family is **Qwen3.5** (Apache-2.0); the FRD's `qwen2.5vl:3b` is non-commercial only and is no longer recommended. The tier table is `nabu/model/tiers.py`.
 

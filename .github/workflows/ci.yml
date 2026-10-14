@@ -45,7 +45,9 @@ jobs:
           path: src/nabu/server/ui_dist
       # Dependencies are fetched first. The tests run under the in-process egress guard
       # (tests/conftest.py), so any outbound attempt fails the run on every OS.
-      - run: uv sync --locked
+      # The reading stack (OCR, PDF, office) is an extra; M1 tests need it. OCR models ship in
+      # the rapidocr wheel, so the offline run below needs nothing more.
+      - run: uv sync --locked --extra read
       - run: uv run ruff check .
       - run: uv run pytest
       # Linux only: run the suite again inside a network namespace with no network at all (NFR-1).

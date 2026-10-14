@@ -76,6 +76,21 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--translations", action="store_const", dest="scope", const="translations")
     g.add_argument("--all", action="store_const", dest="scope", const="all")
 
+    tr = sub.add_parser("translations", help="list or delete remembered translations",
+                        epilog="example: nabu translations list")
+    trsub = tr.add_subparsers(dest="trcmd", required=True)
+    trsub.add_parser("list", epilog="example: nabu translations list")
+    trsub.add_parser("delete", epilog="example: nabu translations delete t1").add_argument("entry_id")
+
+    la = sub.add_parser("langs", help="list or download OCR language packs",
+                        epilog="example: nabu langs pull ko")
+    lasub = la.add_subparsers(dest="lcmd", required=True)
+    lasub.add_parser("list", help="languages OCR reads now, and packs you can add",
+                     epilog="example: nabu langs list")
+    lp = lasub.add_parser("pull", help="download a pack (internet; pinned file, checksum checked)",
+                          epilog="example: nabu langs pull ko")
+    lp.add_argument("lang", help="ISO 639-1 code, e.g. ko")
+
     sub.add_parser("version", help="print the version", epilog="example: nabu version")
     return p
 
@@ -118,18 +133,56 @@ def _models(args: argparse.Namespace, cfg, store) -> None:  # type: ignore[no-un
         _out(args, f"{name} is ready. Make it active with: nabu models use {name}")
 
 
+def _langs(args: argparse.Namespace, store) -> None:  # type: ignore[no-untyped-def]
+    from nabu.ocr import engine, packs
+
+    if args.lcmd == "list":
+        have = packs.installed(store.paths.ocr_langs_dir)
+        if not engine.available():
+            _out(args, "OCR engine: not installed (run: uv sync --extra read)")
+        _out(args, "built in: " + ", ".join(packs.BUILTIN_LANGS))
+        for lang, pack in sorted(packs.PACKS.items()):
+            state = "installed" if lang in have else f"not installed, {pack.size_mb} MB"
+            _out(args, f"{lang}  {pack.language}: {state}")
+    elif args.lcmd == "pull":
+        pack = packs.PACKS.get(args.lang)
+        if pack is None:
+            raise NabuError(f"no OCR language pack for '{args.lang}'. "
+                            f"Available: {', '.join(sorted(packs.PACKS))}")
+        _out(args, f"downloading the {pack.language} OCR pack ({pack.size_mb} MB)")
+        d = store.install_ocr_pack(args.lang, packs.download(args.lang))
+        _out(args, f"{pack.language} OCR pack installed in {d}")
+
+
+def _translations(args: argparse.Namespace, store) -> None:  # type: ignore[no-untyped-def]
+    if args.trcmd == "list":
+        for e in store.translations()["entries"]:
+            _out(args, f'{e.get("id", "?")}  [{e.get("lang", "?")}] {e.get("term", "")} -> '
+                       f'{e.get("english", "")}' + (f'  ({e["scope"]})' if e.get("scope") else ""))
+    elif args.trcmd == "delete":
+        if not store.delete_translation(args.entry_id):
+            raise NabuError(f"no remembered translation with id {args.entry_id}")
+        _out(args, f"removed {args.entry_id}")
+
+
+def _needs_internet(args: argparse.Namespace) -> bool:
+    """`langs pull` is the one command allowed off this machine (AR-3 exception, owner decision
+    2026-10-13). It runs in its own process, which never reads a document."""
+    return args.cmd == "langs" and args.lcmd == "pull"
+
+
 def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)  # opens no socket
+    except SystemExit as e:
+        return EXIT_OK if e.code == 0 else EXIT_USAGE
     # Order matters: the egress guard goes in before anything else can open a socket.
-    netguard.install()
+    if not _needs_internet(args):
+        netguard.install()
     from nabu.hardening import configure_logging, disable_core_dumps
 
     disable_core_dumps()
-
-    parser = build_parser()
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit as e:
-        return EXIT_OK if e.code == 0 else EXIT_USAGE
 
     from nabu.config import load_config
     from nabu.store.paths import default_paths
@@ -182,6 +235,10 @@ def main(argv: list[str] | None = None) -> int:
             _out(args, "\n".join(f"removed {r}" for r in removed) or "nothing to remove")
         elif args.cmd == "models":
             _models(args, cfg, store)
+        elif args.cmd == "langs":
+            _langs(args, store)
+        elif args.cmd == "translations":
+            _translations(args, store)
         return EXIT_OK
     except NabuError as e:
         print(f"nabu: {e.message}", file=sys.stderr)  # noqa: T201

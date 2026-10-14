@@ -12,7 +12,7 @@ from typing import Literal, get_args
 Box = tuple[int, int, int, int]
 ValueType = Literal["name", "id", "number", "date", "amount", "address", "text"]
 VALUE_TYPES: frozenset[str] = frozenset(get_args(ValueType))
-TranslationStatus = Literal["translated", "low_confidence", "untranslated"]
+TranslationStatus = Literal["translated", "low_confidence", "untranslated", "not_needed"]
 
 
 @dataclass(frozen=True)

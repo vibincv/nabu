@@ -60,7 +60,9 @@ _REREAD_SYSTEM = (
 _TRANSLATE_SYSTEM = (
     "Translate each item into English. Return ONLY JSON.\n"
     'If you are not sure of an item, return it unchanged with status "untranslated". Never guess.\n'
-    "status is one of: translated, low_confidence, untranslated."
+    'If an item is a proper name (person, company, place, product) or a code, return it unchanged '
+    'with status "not_needed".\n'
+    "status is one of: translated, low_confidence, untranslated, not_needed."
 )
 _REPAIR = ("\n\nYour previous answer was not valid JSON for the required schema. "
            "Answer again with ONLY the JSON object.")
@@ -94,7 +96,8 @@ TRANSLATE_SCHEMA = {
         "type": "object",
         "properties": {"id": {"type": "string"}, "english": {"type": "string"},
                        "status": {"type": "string",
-                                  "enum": ["translated", "low_confidence", "untranslated"]}},
+                                  "enum": ["translated", "low_confidence", "untranslated",
+                                           "not_needed"]}},
         "required": ["id", "english", "status"],
     }}},
     "required": ["items"],
@@ -185,7 +188,8 @@ class _WireTranslation(_Wire):
     @classmethod
     def _status(cls, v: object) -> str:
         v = str(v or "").strip().lower()
-        return v if v in ("translated", "low_confidence", "untranslated") else "untranslated"
+        return v if v in ("translated", "low_confidence", "untranslated", "not_needed") \
+            else "untranslated"
 
 
 class _WireTranslate(_Wire):
@@ -270,6 +274,8 @@ class ModelClient:
             a = answers.get(i.id)
             if a is None or a.status == "untranslated" or not a.english.strip():
                 out.append(Translation(id=i.id, english=i.text, status="untranslated"))
+            elif a.status == "not_needed":  # kept as printed, whatever the model wrote
+                out.append(Translation(id=i.id, english=i.text, status="not_needed"))
             else:
                 out.append(Translation(id=i.id, english=a.english, status=a.status))  # type: ignore[arg-type]
         return out

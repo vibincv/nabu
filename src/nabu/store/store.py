@@ -1,6 +1,7 @@
 """The store: the only module that writes to disk (AR-2).
 
-Writes: config, templates (+ previous versions), translation memory, logs (via logging).
+Writes: config, templates (+ previous versions), translation memory, OCR language packs,
+logs (via logging).
 Never writes: uploads, page images, working results, values (AD-8, AR-7).
 The output JSON is not written by Nabu at all: the browser downloads it (FR-8.5).
 """
@@ -70,6 +71,19 @@ class Store:
         parse_config(data)
         atomic_write_bytes(self.paths.config_file, _dump(data))
         return self.paths.config_file
+
+    # ---- OCR language packs (FR-1.9) -----------------------------------------------------
+    def install_ocr_pack(self, lang: str, files: dict[str, bytes]) -> Path:
+        """Write a downloaded, checksum-verified pack. Files are model weights, never values."""
+        from nabu.ocr.packs import PACKS
+
+        pack = PACKS.get(lang)
+        if pack is None or set(files) != {pack.model.name, pack.keys.name}:
+            raise NabuError(f"not a known OCR language pack: {lang}")
+        d = self.paths.ocr_langs_dir / lang
+        for name, data in files.items():
+            atomic_write_bytes(d / name, data)
+        return d
 
     # ---- sessions (memory only) -------------------------------------------------------
     def new_session(self) -> Session:
@@ -176,6 +190,14 @@ class Store:
         entry = {**entry, "added_at": _now()}
         tm["entries"].append(entry)
         atomic_write_bytes(self.paths.translations_file, _dump(tm))
+
+    def delete_translation(self, entry_id: str) -> bool:
+        tm = self.translations()
+        kept = [e for e in tm["entries"] if not (isinstance(e, dict) and e.get("id") == entry_id)]
+        if len(kept) == len(tm["entries"]):
+            return False
+        atomic_write_bytes(self.paths.translations_file, _dump({**tm, "entries": kept}))
+        return True
 
     # ---- forget (FR-11.4) -------------------------------------------------------------
     def forget(self, scope: Literal["templates", "translations", "all"]) -> list[str]:
