@@ -4,7 +4,8 @@ Default family: Qwen3.5 (Apache-2.0, commercial use allowed). Sizes are Ollama d
 (ollama.com/library/qwen3.5, checked 2026-10-13). The installer and `doctor` pick from this
 table; the user can always choose another model (`nabu models use`).
 
-VRAM is not detected yet (doctor, M1), so GPU tiers apply only when a caller passes vram_gb.
+doctor passes the largest NVIDIA GPU's VRAM; other GPUs are not detected and count as none.
+qwen3.5:9b confirmed by the owner for >= 16 GB RAM with a >= 6 GB GPU (2026-10-14).
 """
 
 from __future__ import annotations

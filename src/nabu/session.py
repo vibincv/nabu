@@ -21,6 +21,7 @@ class Session:
     upload_name: str | None = None
     page_images: dict[int, bytes] = field(default_factory=dict)
     working_result: dict | None = None
+    reading: object | None = field(default=None, repr=False)  # nabu.ocr.words.Reading, for drawn boxes
     _values: set[str] = field(default_factory=set, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     closed: bool = False
@@ -48,5 +49,6 @@ class Session:
             self.upload = None
             self.page_images.clear()
             self.working_result = None
+            self.reading = None
             self._values.clear()
             self.closed = True

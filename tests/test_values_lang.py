@@ -22,6 +22,20 @@ def test_dates(text, region, iso, ambiguous):
     assert d is not None and d.iso == iso and d.ambiguous == ambiguous
 
 
+@pytest.mark.parametrize("text, region, lang, iso, ambiguous", [
+    ("01/02/2026", None, "de", "2026-02-01", False),  # every German-speaking region is day first
+    ("01/02/2026", None, "pt", "2026-02-01", False),
+    ("01/02/2026", None, "en", None, True),  # US English is month first: still needs review
+    ("01/02/2026", None, "ko", None, True),  # not in the day-first language list
+    ("01/02/2026", None, None, None, True),
+    ("01/02/2026", "US", "de", "2026-01-02", False),  # a region always wins over the language
+    ("10/13/2026", None, "fr", None, True),  # contradicts the language's order
+])
+def test_dates_day_first_by_language(text, region, lang, iso, ambiguous):
+    d = values.parse_date(text, region, lang)
+    assert d is not None and d.iso == iso and d.ambiguous == ambiguous
+
+
 @pytest.mark.parametrize("text", ["RE-2026-0412", "31.02.2026", "hello", "2026"])
 def test_not_dates(text):
     assert values.parse_date(text, "DE") is None
@@ -65,6 +79,11 @@ def test_infer(value, kind):
     ("Номер счёта", "ru"),
     ("RE-2026-0412", None),
     ("", None),
+    # compound labels only, no function words: a typical German invoice header
+    ("Rechnungsnummer: RE-2026-0412\nRechnungsdatum: 01/02/2026\nKundennummer: KD-55821\n"
+     "Gesamtbetrag: 1.428,00 EUR", "de"),
+    ("Factuurnummer: F-1\nFactuurdatum: 01/02/2026\nKlantnummer: K-9\nTotaalbedrag: 10,00 EUR", "nl"),
+    ("Invoice Number: INV-1\nCustomer Account: C-9\nTotal Amount: 10.00", "en"),
 ])
 def test_detect(text, lang):
     assert detect.detect(text) == lang

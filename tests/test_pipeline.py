@@ -158,7 +158,7 @@ def test_progress_and_cancel():
     seen = []
     pipeline.run(scan_uploads(2), Config(), Session(), readers(None, FakeOcr()),
                  progress=lambda done, total, stage: seen.append((done, total, stage)))
-    assert seen == [(1, 2, "reading"), (2, 2, "reading")]
+    assert seen == [(1, 2, "reading"), (2, 2, "reading"), (0, 1, "translating"), (1, 1, "translating")]
     with pytest.raises(pipeline.Cancelled):
         pipeline.run(scan_uploads(2), Config(), Session(), readers(None, FakeOcr()),
                      cancelled=lambda: True)

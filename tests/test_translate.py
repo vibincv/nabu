@@ -35,9 +35,15 @@ def test_value_rules_without_model():  # FR-9.6 + FR-9.10
 
 
 def test_ambiguous_date_keeps_printed_form():
-    fs = [field("Datum", "01/02/2026", "date")]
+    fs = [field("Date", "01/02/2026", "date", lang="en")]
     translate_fields(fs, TranslationMemory(), None, region=None)
     assert fs[0].value_en == "01/02/2026" and "needs_review" in fs[0].status
+
+
+def test_no_region_day_first_language_resolves_date():
+    fs = [field("Datum", "01/02/2026", "date")]
+    translate_fields(fs, TranslationMemory(), None, region=None)
+    assert fs[0].value_en == "2026-02-01" and "needs_review" not in fs[0].status
 
 
 def test_memory_first_then_model_and_unchanged_is_untranslated():

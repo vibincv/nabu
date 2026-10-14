@@ -16,7 +16,7 @@ Source = Literal["template", "model", "model_reread", "discovery_rules", "user"]
 BoxSource = Literal["ocr", "model", "text_layer"]
 Status = Literal["from_template", "suggested", "needs_review", "not_found", "not_translated",
                  "edited_by_user"]
-TStatus = Literal["not_needed", "memory", "translated", "low_confidence", "untranslated"]
+TStatus = Literal["not_needed", "memory", "translated", "low_confidence", "untranslated", "user"]
 
 
 @dataclass
@@ -35,6 +35,7 @@ class Field:
     box_source: BoxSource | None = None
     status: list[Status] = field(default_factory=list)
     translation: dict[str, TStatus] = field(default_factory=dict)  # {"name": ..., "value": ...}
+    removed: bool = False  # "Not required" in the review window (FR-6.8)
 
     def flag(self, s: Status) -> None:
         if s not in self.status:

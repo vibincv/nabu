@@ -185,7 +185,9 @@ def discover(reading: Reading, cfg: Config, readers: Readers, progress: Progress
     for f in fields:
         f.lang = detect.field_language(f.printed_label or "", f.value, by_n[f.page].lang)
     fields = discovery.merge(fields)
+    progress(0, 1, "translating")
     outcome = translate.translate_fields(fields, readers.memory, model, country_guess, type_guess)
+    progress(1, 1, "translating")
     messages += outcome.messages
     model_used = model_used or outcome.model_calls > 0
     fields = discovery.number(fields)
@@ -215,5 +217,6 @@ def run(uploads: list[Upload], cfg: Config, session: Session, readers: Readers,
         if f.value_en != f.value:
             session.register_value(f.value_en)
     session.page_images = {p.n: p.image.data for p in reading.pages if p.image is not None}
+    session.reading = reading  # words with boxes, for fields the user draws (FR-6.9)
     session.working_result = result.to_dict()
     return result

@@ -14,25 +14,72 @@
   <body class="notranslate">
     <header class="topbar">
       <div class="brand">Nabu</div>
-      <label class="hdr-field">Document type
-        <input id="doc-type" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" />
+      <label class="hdr-field" id="doc-type-field" hidden>Document type
+        <span class="hdr-input">
+          <input id="doc-type" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" />
+          <button id="doc-type-guess" class="link" type="button" hidden></button>
+        </span>
       </label>
-      <label class="hdr-field">Region
-        <input id="region" type="text" maxlength="2" spellcheck="false" autocomplete="off" autocapitalize="characters" />
+      <label class="hdr-field" id="region-field" hidden>Region
+        <span class="hdr-input">
+          <select id="region"></select>
+          <button id="region-guess" class="link" type="button" hidden></button>
+        </span>
       </label>
       <span id="mode" class="mode" role="status"></span>
-      <button id="verify" class="primary" type="button">Verify</button>
+      <button id="close-doc" type="button" hidden>Close document</button>
+      <button id="verify" class="primary" type="button" hidden>Verify</button>
     </header>
-    <div id="banner" class="banner" role="status"></div>
-    <main class="panes">
+    <div id="banner" class="banner" role="status" hidden></div>
+    <div id="notice" class="notice" role="alert" hidden></div>
+
+    <!-- Upload (FR-6.2) -->
+    <main id="upload-view" class="center-view" hidden>
+      <div id="drop" class="drop" tabindex="0" role="button" aria-describedby="drop-help">
+        <p class="drop-title">Drop a document here, or choose a file</p>
+        <p id="drop-help" class="muted">PDF, Word, Excel, PowerPoint, text, or images. Several images
+          (for example front and back) become one document.</p>
+        <input id="file-input" type="file" multiple hidden />
+        <button id="choose" type="button" class="primary">Choose file</button>
+      </div>
+      <ol id="chosen" class="chosen" aria-label="Chosen files, in page order"></ol>
+      <div class="dialog-actions" id="chosen-actions" hidden>
+        <button id="chosen-clear" type="button">Clear</button>
+        <button id="read" type="button" class="primary">Read document</button>
+      </div>
+    </main>
+
+    <!-- Reading (FR-6.15, UX-2.10) -->
+    <main id="reading-view" class="center-view" hidden>
+      <p id="reading-text">Reading…</p>
+      <progress id="reading-bar" max="1" value="0"></progress>
+      <p id="reading-stage" class="muted"></p>
+      <button id="cancel" type="button">Cancel</button>
+    </main>
+
+    <!-- Review (UX-1) -->
+    <main id="review-view" class="panes" hidden>
       <section class="page-pane" aria-label="Document page">
-        <svg id="page" role="img" aria-label="Page 1 with highlighted fields"></svg>
+        <div class="page-tools">
+          <button id="page-prev" type="button" aria-label="Previous page">‹</button>
+          <span id="page-label"></span>
+          <button id="page-next" type="button" aria-label="Next page">›</button>
+          <span id="order-tools" hidden>
+            <button id="page-earlier" type="button">Move page earlier</button>
+            <button id="page-later" type="button">Move page later</button>
+          </span>
+          <button id="draw" type="button" aria-pressed="false">Add field</button>
+        </div>
+        <ul id="page-messages" class="messages"></ul>
+        <svg id="page" role="img" aria-label="Page with highlighted fields"></svg>
+        <pre id="page-text" class="page-text" hidden></pre>
       </section>
       <section class="fields-pane" aria-label="Fields">
         <div class="list-tools">
           <label><input id="order-toggle" type="checkbox" /> Document order</label>
           <label><input id="lang-toggle" type="checkbox" /> Show originals</label>
         </div>
+        <p id="empty-state" class="empty" hidden></p>
         <ol id="fields" class="fields"></ol>
         <details id="removed" class="removed">
           <summary>Show removed fields (<span id="removed-count">0</span>)</summary>
@@ -40,8 +87,9 @@
         </details>
       </section>
     </main>
-    <dialog id="summary">
-      <h2>Verify</h2>
+
+    <dialog id="summary" aria-labelledby="summary-title">
+      <h2 id="summary-title">Verify</h2>
       <p id="summary-text"></p>
       <ul id="summary-issues"></ul>
       <div class="dialog-actions">
@@ -49,6 +97,60 @@
         <button id="summary-confirm" class="primary" type="button">Confirm</button>
       </div>
     </dialog>
+
+    <!-- Save dialog (FR-7.1). Templates arrive in M3: only "This document only" is enabled. -->
+    <dialog id="save" aria-labelledby="save-title">
+      <h2 id="save-title">Save</h2>
+      <fieldset class="choices">
+        <legend>What should Nabu learn from this document?</legend>
+        <label class="choice disabled"><input type="radio" name="save-choice" value="new" disabled />
+          Save as new template <span class="muted">— arrives with templates</span></label>
+        <label class="choice disabled"><input type="radio" name="save-choice" value="update" disabled />
+          Update existing template <span class="muted">— arrives with templates</span></label>
+        <label class="choice"><input type="radio" name="save-choice" value="document_only" checked />
+          This document only <span class="marker suggested">suggested</span></label>
+      </fieldset>
+      <p class="muted">No template changes. Values are never stored.</p>
+      <div class="dialog-actions">
+        <button id="save-cancel" type="button">Cancel</button>
+        <button id="save-confirm" class="primary" type="button">Save</button>
+      </div>
+    </dialog>
+
+    <dialog id="done" aria-labelledby="done-title">
+      <h2 id="done-title">Output ready</h2>
+      <p>The JSON file is ready to download. Nabu keeps no copy.</p>
+      <div class="dialog-actions">
+        <button id="done-back" type="button">Back to review</button>
+        <button id="download" class="primary" type="button">Download JSON</button>
+        <button id="done-close" type="button">Close document</button>
+      </div>
+    </dialog>
+
+    <dialog id="name-dialog" aria-labelledby="name-title">
+      <form method="dialog" id="name-form">
+        <h2 id="name-title">Name the new field</h2>
+        <label>Field name <input id="name-input" type="text" required spellcheck="false" autocomplete="off" /></label>
+        <div class="dialog-actions">
+          <button value="cancel" type="button" id="name-cancel">Cancel</button>
+          <button value="ok" class="primary" type="submit">Add field</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="tr-dialog" aria-labelledby="tr-title">
+      <form method="dialog" id="tr-form">
+        <h2 id="tr-title">Type the English</h2>
+        <p id="tr-term" class="term"></p>
+        <label>English <input id="tr-input" type="text" required spellcheck="false" autocomplete="off" /></label>
+        <label class="muted"><input type="checkbox" disabled /> Remember this translation (arrives with templates)</label>
+        <div class="dialog-actions">
+          <button type="button" id="tr-cancel">Cancel</button>
+          <button class="primary" type="submit">Use</button>
+        </div>
+      </form>
+    </dialog>
+
     <footer class="footer">
       <span>Nothing leaves this machine. Values are not stored. Browser extensions can read this window.</span>
     </footer>

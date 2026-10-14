@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "serve":
             from nabu.server.run import serve
 
-            serve(cfg.ui_port, open_browser=not args.no_browser)
+            serve(cfg, paths, open_browser=not args.no_browser)
         elif args.cmd == "templates":
             if args.tcmd == "list":
                 for t in store.templates():
