@@ -122,7 +122,12 @@ def test_page_rules():  # FR-5.2
     assert out.link["outcome"] == "linked" and out.link["missing_pages"] == [2]
     assert "page 2 is missing" in out.messages[0]
     assert score(pipeline.read_document(scan(2), CFG, FakeOcr()), template(), CFG).value == 0
-    assert score(r, template(aspect=1.41), CFG).value == 0  # landscape template, portrait page
+    # Page shape counts only on a template page with no anchors (owner retest 2026-10-21: with
+    # anchors, a photo's shape is the camera's framing and the fit decides).
+    two["template"]["pages"] = [{"aspect": 0.71}, {"aspect": 1.41}]  # page 2: landscape, no anchors
+    assert score(pipeline.read_document(scan(2), CFG, FakeOcr()), two, CFG).value == 0
+    two["template"]["pages"] = [{"aspect": 0.71}, {"aspect": 0.71}]
+    assert score(pipeline.read_document(scan(2), CFG, FakeOcr()), two, CFG).value == 1.0
 
 
 def test_ocr_confusions_and_outcomes():  # FR-5.2 tolerance, FR-5.4 outcomes

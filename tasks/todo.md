@@ -1,3 +1,65 @@
+# M3.2 Linking on real photos, template folder, export folder (proposed 2026-10-21) - awaiting approval
+
+Owner retest: a second PAN card did not link; the template had to be picked by hand.
+
+## Root cause (investigated)
+1. The owner's `pancard.json` (Temp\nabu-test, saved 2026-10-14 15:10) predates the landmark fix
+   (align.py 15:30): no printed labels, no boxes, no landmarks -> link.score total 0 -> 0.0.
+2. Even re-saved, link.py:96-99 rejects a page whose aspect differs > 10% from the template's.
+   That is the photo's shape, not the card's, so any differently framed photo scores 0.
+3. Removing the gate alone is not enough: align fits in the 0-1000 grid per axis, so a photo of
+   another aspect needs a different scale on x and y; the uniform fit fails. Tests never caught
+   it because every test card is an A4 PDF page.
+4. Templates went to Temp because the server ran with NABU_HOME=Temp\nabu-test.
+
+## Decisions (owner, 2026-10-21)
+- Export: one JSON per document into a configured folder, written only on Save after Verify.
+- Templates: configurable folder (config key), default stays the per-user store.
+- Shape gate: skipped when the template has labels or landmarks; kept for templates with none.
+
+## 1. Linking across photo shapes (templates/align.py, link.py)
+- [x] Fit in aspect-true units: grid x * w/max(w,h), y * h/max(w,h); template side uses the
+      stored page aspect, document side the page's own. Fit.box maps back to the document grid.
+- [x] link.score: shape check only when the template has no anchors on that page.
+- [x] Scale range 0.75-1.33 -> 0.5-2.0 (provisional). Needed: a card at 60% size scored
+      "similar" with the old floor. False-link guard unchanged (one fit, link_threshold).
+- [x] Tests: docgen.pdf gets a page size; PAN card on a landscape page, a tall phone-photo page
+      and a landscape page at 60% links and reads; an unrelated document on a landscape page
+      does not link; unit fit across page shapes.
+- [x] Found while fixing: read.py scaled label->value offsets by one factor (Fit.offset now
+      per axis); an update kept landmark boxes from the old photo while taking the new photo's
+      shape (now the box where each is found on this document). Test: update from a landscape
+      photo, then a third card links.
+- [x] test_link.test_page_rules: the "landscape template never links a portrait page" check
+      replaced by the rule that remains (shape counts only on a page without anchors).
+- Result: 366 passed, 4 skipped; ruff clean.
+
+## 2. Template folder (config, store/paths.py, cli.py)
+- [ ] Config `templates_dir: str | None` (absolute path; None -> <data_dir>/templates).
+- [ ] StorePaths takes an optional templates root; cli.py applies it after load_config, so
+      serve, templates CLI and doctor all use the same folder. `doctor` prints the folder.
+- [ ] Existing templates are not moved automatically; README says how to copy them.
+- [ ] Tests: save + link with templates_dir set; relative path refused.
+
+## 3. Export folder (AR-7 change: one value-bearing write path)
+- [ ] Config `export_dir: str | None`, default None (off: no disk writes, as today).
+      Refused if inside the templates folder or the data dir (the no-values scans stay valid).
+- [ ] Store.export_output(name, bytes): the only method allowed to write values. Atomic
+      (temp file in the same folder, then rename) so the service never reads a partial file.
+      Name: <source>.<UTC yyyymmddThhmmss>.<doc id 8>.nabu.json (no overwrite of an earlier scan).
+- [ ] DocumentService.save: after _confirmed, if export_dir set, write the DD-3 output.
+      Export failure -> named error to the UI; the template save stays (it already succeeded).
+- [ ] Save response carries `exported: <file name> | null`; UI shows "Exported to <folder>".
+- [ ] Product log records the file name only, never content.
+- [ ] Tests: export on each save choice; nothing written when off; value scan of the store
+      still clean; config refusing export_dir inside data dir.
+- [ ] FRD notes: AR-7 exception (export folder), new config keys.
+
+## Not in scope
+- Pushing to the service (it reads the folder), deleting exported files, encrypting them.
+- Moving the owner's current template: delete `Temp\nabu-test\templates\id\IN\pancard.json`
+  and save the PAN card again after this lands.
+
 # M3 fix: templates for documents without printed labels (approved 2026-10-14, "Fix templates first") - done, awaiting owner retest
 
 Found by the owner on a PAN card: the template saved with printed_label null on every field, so

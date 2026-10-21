@@ -77,10 +77,6 @@ def _text(words: list[Word]) -> str | None:
     return text.strip().lstrip(":：").strip() or None
 
 
-def _scaled(offset: Box, s: float) -> Box:
-    return tuple(round(v * s) for v in offset)  # type: ignore[return-value]
-
-
 def _read_paginated(page: Page, anchor: dict, tol: float, fit: align.Fit,
                     hit: tuple[Box, int, int] | None) -> tuple[str | None, Box | None,
                                                                Box | None, str | None]:
@@ -99,7 +95,7 @@ def _read_paginated(page: Page, anchor: dict, tol: float, fit: align.Fit,
             lb, i, j = hit
             skip = set(range(i, j + 1))
             printed = " ".join(w.text for w in page.words[i:j + 1]).rstrip(":： ")
-            expected = _shift(lb, _scaled(tuple(offset), fit.s))  # type: ignore[arg-type]
+            expected = _shift(lb, fit.offset(tuple(offset)))  # type: ignore[arg-type]
         else:  # label not found: where it would be
             expected = fit.box(_shift(tuple(abox), tuple(offset)))  # type: ignore[arg-type]
     else:
@@ -125,7 +121,7 @@ def read_linked(reading: Reading, t: dict, cfg: Config, model: ModelClient | Non
     if paginated(reading):  # one fit per page, from its labels and landmarks
         for p in reading.pages:
             items = align.anchors(t, p.n)
-            pl = align.place(items, p, cfg.anchor_tolerance)
+            pl = align.place(items, p, cfg.anchor_tolerance, align.page_aspect(t, p.n))
             placed[p.n] = (pl, {items[k].field: h for k, h in pl.hits.items()  # type: ignore[misc]
                                 if items[k].field is not None})
     for i, tf in enumerate(t.get("fields") or [], 1):

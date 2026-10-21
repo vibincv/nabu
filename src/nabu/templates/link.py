@@ -7,8 +7,9 @@ anchor counts when it sits where the fit puts it, within the anchor tolerance (t
 Only words and boxes from reading are used, so linking needs no model (FR-5.1).
 
 - Fewer pages than the template: scored on the pages present; the missing pages are reported.
-- More pages, or a page of another shape (aspect ratio differs by more than SHAPE_TOLERANCE),
-  or a paginated document against a label-only template (and the reverse): score 0.
+- More pages, or a paginated document against a label-only template (and the reverse): score 0.
+- A page of another shape (aspect ratio differs by more than SHAPE_TOLERANCE): score 0, but only
+  when the template has no anchors on that page. With anchors, the fit decides (templates.align).
 - Office and text files (AD-15): an anchor counts when its label appears anywhere.
 """
 
@@ -93,16 +94,20 @@ def score(reading: Reading, t: dict, cfg: Config) -> Score:
         return Score(found / len(labels))
     if not paginated(reading) or len(reading.pages) > len(shapes):
         return Score(0.0)
+    total = found = 0
     for page, shape in zip(reading.pages, shapes, strict=False):
         want = shape.get("aspect") or 0
-        if not want or abs(aspect(page) - want) / want > SHAPE_TOLERANCE:
-            return Score(0.0)
+        items = align.anchors(t, page.n)
+        if not items:  # nothing to fit: the page shape is the only evidence
+            if not want or abs(aspect(page) - want) / want > SHAPE_TOLERANCE:
+                return Score(0.0)
+            continue
+        # Labels and landmarks, placed through one fit per page. A photo's shape is the
+        # camera's framing, so it is not checked here (owner retest 2026-10-21).
+        pl = align.place(items, page, cfg.anchor_tolerance, want or None)
+        total, found = total + pl.total, found + pl.found
     present = len(reading.pages)
     missing = list(range(present + 1, len(shapes) + 1))
-    total = found = 0
-    for page in reading.pages:  # labels and landmarks, placed through one fit per page
-        pl = align.place(align.anchors(t, page.n), page, cfg.anchor_tolerance)
-        total, found = total + pl.total, found + pl.found
     return Score(found / total if total else 0.0, missing)
 
 

@@ -209,12 +209,13 @@ def _runs(words: list[Word]) -> list[list[Word]]:
 
 def _kept_landmarks(base: dict, reading: Reading, cfg: Config) -> list[dict]:
     """On update, only landmarks of the template that are also on this document are kept: the
-    list can only shrink, so an update never adds new text to disk."""
+    list can only shrink, so an update never adds new text to disk. Each keeps the box where it
+    is on this document, as the update also takes this document's page shape and fields."""
     out = []
     for page in reading.pages:
         items = [a for a in align.anchors(base, page.n) if a.field is None]
-        pl = align.place(items, page, cfg.anchor_tolerance)
-        out += [{"text": items[k].text, "page": page.n, "box": list(items[k].box)}
+        pl = align.place(items, page, cfg.anchor_tolerance, align.page_aspect(base, page.n))
+        out += [{"text": items[k].text, "page": page.n, "box": list(pl.hits[k][0])}
                 for k in sorted(pl.hits)]
     return out
 

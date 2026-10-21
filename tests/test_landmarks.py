@@ -25,13 +25,13 @@ CARD2 = ("ANITA DESAI", "PRAKASH DESAI", "02/11/1990", "BQRPD5678M")
 Y = [200, 240, 280, 320]  # value baselines, points from the top
 
 
-def card(values, dx=0.0, dy=0.0, s=1.0):
+def card(values, dx=0.0, dy=0.0, s=1.0, page=(595, 842)):
     def at(x, y):
         return dx + s * x, dy + s * y
     lines = [(*at(60, 60), STATIC[0]), (*at(330, 60), STATIC[1]), (*at(60, 100), STATIC[2]),
              (*at(60, 420), STATIC[3])]
     lines += [(*at(60, y), v) for y, v in zip(Y, values, strict=True)]
-    return docgen.pdf([lines])
+    return docgen.pdf([lines], page=page)
 
 
 def grid_box(y_pt):  # a box around a value line on the 0-1000 grid of an A4 page
@@ -97,6 +97,44 @@ def test_other_document_does_not_link(client, store):  # noqa: F811
     close(client, doc_id)
 
 
+# Owner retest 2026-10-21: a second PAN photo of another shape scored 0 on the page-shape check
+# before any landmark was looked at. A photo's shape is the camera's framing, not the card's.
+@pytest.mark.parametrize(("page", "s"), [((842, 595), 0.9), ((595, 1058), 0.9),
+                                         ((842, 595), 0.6)],
+                         ids=["landscape", "tall_phone", "landscape_far"])
+def test_card_on_a_photo_of_another_shape_links_and_reads(client, store, page, s):  # noqa: F811
+    tid = learn_card(client, excluded=())
+    doc_id, d = open_doc(client, card(CARD2, dx=40, dy=30, s=s, page=page), "pan5.pdf")
+    assert d["link"]["outcome"] == "linked" and d["link"]["template_id"] == tid
+    assert values_of(d) == dict(zip(NAMES, CARD2, strict=True))
+    close(client, doc_id)
+
+
+def test_other_document_on_another_shape_does_not_link(client, store):  # noqa: F811
+    learn_card(client, excluded=())
+    other = docgen.pdf([[(60, 80, "Invoice no: INV-1"), (60, 110, "Total: 5.00 EUR")]],
+                       page=(842, 595))
+    doc_id, d = open_doc(client, other, "invoice.pdf")
+    assert d["link"]["outcome"] == "none"
+    close(client, doc_id)
+
+
+def test_update_from_a_photo_of_another_shape_still_links(client, store):  # noqa: F811
+    # The update records the new photo's shape, so the kept landmarks must be where they are on
+    # the new photo, not where they were on the old one.
+    tid = learn_card(client, excluded=())
+    landscape = (842, 595)
+    doc_id, d = open_doc(client, card(CARD2, dx=40, dy=30, s=0.9, page=landscape), "pan6.pdf")
+    base = f"/api/documents/{doc_id}"
+    client.post(f"{base}/verify")
+    assert client.post(f"{base}/save", json={"choice": "update", "template_id": tid}).status_code == 200
+    close(client, doc_id)
+    doc_id, d = open_doc(client, card(CARD1, page=landscape), "pan7.pdf")
+    assert d["link"]["outcome"] == "linked" and d["link"]["template_id"] == tid
+    assert values_of(d) == dict(zip(NAMES, CARD1, strict=True))
+    close(client, doc_id)
+
+
 def test_update_keeps_only_landmarks_seen_again(client, store):  # noqa: F811
     tid = learn_card(client)
     # A card without the "GOVT OF INDIA" line: an update must drop it, never add new text.
@@ -117,10 +155,10 @@ def test_update_keeps_only_landmarks_seen_again(client, store):  # noqa: F811
 
 # ---- the fit itself --------------------------------------------------------------------------
 
-def page_of(items):
+def page_of(items, width=595, height=842):
     words = [Word(text, box) for text, box in items]
-    return Page(n=1, source="text_layer", lines=[Line((w,)) for w in words], width_px=595,
-                height_px=842)
+    return Page(n=1, source="text_layer", lines=[Line((w,)) for w in words], width_px=width,
+                height_px=height)
 
 
 def test_fit_finds_zoom_and_shift():
@@ -129,6 +167,18 @@ def test_fit_finds_zoom_and_shift():
                align.Anchor("CCCCCC", (100, 700, 200, 720), None)]
     moved = [(a.text, align.Fit(0.9, 40, -20).box(a.box)) for a in anchors]
     pl = align.place(anchors, page_of(moved), Config().anchor_tolerance)
+    assert pl.found == 3 and abs(pl.fit.s - 0.9) < 0.01
+
+
+def test_fit_across_page_shapes():
+    # Template on a portrait page (aspect 0.7); the same layout photographed landscape (1.4):
+    # each grid unit is a different length on x and y, but the card itself is not stretched.
+    anchors = [align.Anchor("AAAAAA", (100, 100, 200, 120), None),
+               align.Anchor("BBBBBB", (600, 100, 700, 120), None),
+               align.Anchor("CCCCCC", (100, 700, 200, 720), None)]
+    want = align.Fit(0.9, 40, 20, tu=align.units(0.7), du=align.units(1.4))
+    moved = [(a.text, want.box(a.box)) for a in anchors]
+    pl = align.place(anchors, page_of(moved, 842, 601), Config().anchor_tolerance, aspect=0.7)
     assert pl.found == 3 and abs(pl.fit.s - 0.9) < 0.01
 
 

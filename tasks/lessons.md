@@ -65,3 +65,12 @@
   receipts), and make a save that cannot work say so.
 - A plain least-squares fit made a different layout "the same form, moved"; the existing
   Format B test caught it. Keep negative tests (must NOT link) next to every looser matcher.
+
+## 2026-10-21 Second PAN photo did not link
+- Every test card was an A4 PDF page, so the photo's shape never changed and the page-shape gate,
+  the per-axis grid and the one-factor offset scaling all looked correct. Real input is phone
+  photos of any shape and zoom. Generate test inputs that vary every property real capture
+  varies (page shape, zoom, position), not only the content.
+- The owner's retest failed partly on a template saved before the fix. After a fix to a learned
+  artefact, say which saved artefacts it cannot repair, and check the owner's store, not only
+  the tests.

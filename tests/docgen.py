@@ -45,10 +45,11 @@ class _Pdf:
 
 def pdf(pages: list[list[tuple[float, float, str]] | bytes], *, size: int = 11,
         form: list[tuple[str, str, int, tuple[float, float, float, float]]] = (),
-        encrypted: bool = False) -> bytes:
-    """A4 PDF. Each page is a list of (x_pt, y_pt_from_top, text) or JPEG bytes (a scanned page).
+        encrypted: bool = False, page: tuple[int, int] = (595, 842)) -> bytes:
+    """PDF, A4 unless `page` (width, height in points) says otherwise. Each page is a list of
+    (x_pt, y_pt_from_top, text) or JPEG bytes (a scanned page).
     `form` adds AcroForm text fields: (name, value, page index, rect in points from bottom)."""
-    w, h = 595, 842
+    w, h = page
     doc = _Pdf()
     catalog = doc.add(b"")
     pages_obj = doc.add(b"")

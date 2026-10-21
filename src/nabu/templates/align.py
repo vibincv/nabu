@@ -9,32 +9,61 @@ boxes through the same fit.
 
 Uniform scale (one factor for both axes) is used on purpose: a photo zooms both axes together,
 and the extra constraint stops two stray matches from always fitting.
+
+The fit is made in page units, not grid units: a grid unit is 1/1000 of the page's width on x
+and of its height on y, so on a photo of another shape (landscape vs portrait, owner retest
+2026-10-21) the same card would need a different scale on each axis. A page unit is 1/1000 of
+the page's longer side on both axes; the template side uses the page aspect stored in the
+template, the document side the page's own.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from nabu.model.types import Box
 from nabu.ocr.words import GRID, Page
-from nabu.templates import centre_in, find_label, widen
+from nabu.templates import centre_in, find_label, header, widen
 
-MIN_SCALE, MAX_SCALE = 0.75, 1.33
-MAX_MOVE = 200  # grid units (20% of the page): framing, not another layout; provisional
+MIN_SCALE, MAX_SCALE = 0.5, 2.0  # a phone photo's card size varies more than a scan's; provisional
+MAX_MOVE = 200  # page units (20% of the longer side): framing, not another layout; provisional
 MAX_PAIRS = 30  # anchors used for fitting on one page
+
+
+def units(aspect: float | None) -> tuple[float, float]:
+    """Page units per grid unit on (x, y) for a page of this width/height ratio."""
+    if not aspect or aspect <= 0:
+        return 1.0, 1.0
+    return min(1.0, aspect), min(1.0, 1 / aspect)
+
+
+def page_aspect(t: dict, page_n: int) -> float | None:
+    """The template's stored aspect for page `page_n` (1-based), if any."""
+    shapes = header(t).get("pages") or []
+    return (shapes[page_n - 1] or {}).get("aspect") if 0 < page_n <= len(shapes) else None
 
 
 @dataclass(frozen=True)
 class Fit:
+    """Template grid -> document grid: scale `s` and shift (tx, ty) in page units, with the
+    page units per grid unit of the template (tu) and of the document (du)."""
     s: float = 1.0
     tx: float = 0.0
     ty: float = 0.0
+    tu: tuple[float, float] = (1.0, 1.0)
+    du: tuple[float, float] = (1.0, 1.0)
 
     def box(self, b: Box) -> Box:
-        x0, y0 = self.s * b[0] + self.tx, self.s * b[1] + self.ty
-        x1, y1 = self.s * b[2] + self.tx, self.s * b[3] + self.ty
+        (ax, ay), (bx, by) = self.tu, self.du
+        x0, y0 = (self.s * b[0] * ax + self.tx) / bx, (self.s * b[1] * ay + self.ty) / by
+        x1, y1 = (self.s * b[2] * ax + self.tx) / bx, (self.s * b[3] * ay + self.ty) / by
         return (max(0, min(GRID, round(x0))), max(0, min(GRID, round(y0))),
                 max(0, min(GRID, round(x1))), max(0, min(GRID, round(y1))))
+
+    def offset(self, o: Box) -> Box:
+        """A template offset (from a label box to its value box), on this document's grid."""
+        kx, ky = self.s * self.tu[0] / self.du[0], self.s * self.tu[1] / self.du[1]
+        return (round(o[0] * kx), round(o[1] * ky), round(o[2] * kx), round(o[3] * ky))
 
 
 @dataclass
@@ -89,21 +118,34 @@ def fit(pairs: list[tuple[Box, Box]]) -> Fit:
     return Fit(s, nx - s * mx, ny - s * my)
 
 
-def place(items: list[Anchor], page: Page, tol: float) -> Placement:
-    """Fit the template page onto `page` from its anchors. `hits` is keyed by position in
-    `items`."""
+def _to_units(b: Box, u: tuple[float, float]) -> Box:
+    return (b[0] * u[0], b[1] * u[1], b[2] * u[0], b[3] * u[1])  # type: ignore[return-value]
+
+
+def place(items: list[Anchor], page: Page, tol: float, aspect: float | None = None) -> Placement:
+    """Fit the template page onto `page` from its anchors. `aspect` is the template page's
+    width/height (None: same shape as `page`). `hits` is keyed by position in `items`."""
+    du = units((page.width_px or 0) / page.height_px if page.height_px else None)
+    tu = units(aspect) if aspect else du
     if not items:
-        return Placement()
+        return Placement(Fit(tu=tu, du=du))
     found: dict[int, tuple[Box, int, int]] = {}
     for i, a in enumerate(items):
         hit = find_label(a.text, page.words, near=a.box)
         if hit is not None:
             found[i] = hit
-    pairs = [(i, (items[i].box, found[i][0])) for i in sorted(found)][:MAX_PAIRS]
-    centroid = _mean([_centre(items[i].box) for i, _ in pairs]) if pairs else (0.0, 0.0)
+    # Fitted in page units; `on` gives the fit the grid conversions both ways.
+    pairs = [(i, (_to_units(items[i].box, tu), _to_units(found[i][0], du)))
+             for i in sorted(found)][:MAX_PAIRS]
+    grid = {i: (items[i].box, found[i][0]) for i, _ in pairs}
+    centroid = _mean([_centre(tb) for _, (tb, _) in pairs]) if pairs else (0.0, 0.0)
+
+    def on(f: Fit) -> Fit:
+        return replace(f, tu=tu, du=du)
 
     def agree(f: Fit) -> list[int]:
-        return [i for i, (tb, fb) in pairs if centre_in(fb, widen(f.box(tb), tol))]
+        g = on(f)
+        return [i for i, (tb, fb) in grid.items() if centre_in(fb, widen(g.box(tb), tol))]
 
     def moved(f: Fit) -> float:
         cx, cy = centroid
@@ -126,7 +168,7 @@ def place(items: list[Anchor], page: Page, tol: float) -> Placement:
         if moved(refined) <= MAX_MOVE and len(agree(refined)) >= len(best_in):
             best, best_in = refined, agree(refined)
     hits = {i: found[i] for i in best_in}
-    return Placement(best, len(items), len(hits), hits)
+    return Placement(on(best), len(items), len(hits), hits)
 
 
 def _mean(points: list[tuple[float, float]]) -> tuple[float, float]:
