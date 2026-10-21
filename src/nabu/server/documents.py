@@ -308,7 +308,18 @@ class ReviewDocument:
             "format_suggestion": write.next_format_name(templates, doc_type or "", region),
             "changes": write.changes(result, self.template),  # FR-7.1, names only
             "labels": write.labels_to_store(result),  # what would be written to disk
+            # Landmarks a save would write, per choice; the user can leave any out (FR-7.1).
+            "landmarks": self._landmarks(result, targets),
         }
+
+    def _landmarks(self, result: WorkingResult, targets: list[dict]) -> dict:
+        reading = self.session.reading
+        if not isinstance(reading, Reading):
+            return {"new": [], "update": []}
+        values = self.session.values()
+        return {"new": write.landmarks_to_store(result, reading, self.cfg, values, None),
+                "update": write.landmarks_to_store(result, reading, self.cfg, values,
+                                                   targets[0]) if targets else []}
 
     def _templates(self) -> list[dict]:
         return self.store.templates() if self.store is not None else []
@@ -350,6 +361,10 @@ class ReviewDocument:
         if not isinstance(reading, Reading):
             raise Conflict("the document is not read yet")
         templates = self._templates()
+        excluded = body.get("landmarks_excluded") or []
+        if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
+            raise Invalid("landmarks_excluded must be a list of text")
+        values = self.session.values()
         if choice == "new":
             doc_type = _text(body.get("document_type"), "document type", MAX_NAME)
             fmt = _text(body.get("format"), "format name", MAX_NAME)
@@ -358,7 +373,8 @@ class ReviewDocument:
                 raise Invalid("a new template needs a document type and a format name (FR-7.3)")
             if region is not None and not REGION.match(region):
                 raise Invalid("region must be a two-letter country code in capitals, or empty")
-            t = write.build_new(result, reading, self.cfg, doc_type, region, fmt, templates)
+            t = write.build_new(result, reading, self.cfg, doc_type, region, fmt, templates,
+                                values, excluded)
         else:
             tid = body.get("template_id")
             targets = {template_header(x).get("id"): x for x in self._update_targets(templates)}
@@ -367,7 +383,8 @@ class ReviewDocument:
             if tid not in targets:
                 raise Invalid("update needs the linked template, or one of the same document "
                               "type and region")
-            t = write.build_update(self.store.load_template(tid), result, reading, self.cfg)
+            t = write.build_update(self.store.load_template(tid), result, reading, self.cfg,
+                                   values, excluded)
         try:
             self.store.save_template(t, self.session)
         except NabuError as e:  # a value in a name or label (AR-7), or a format name in use
@@ -640,6 +657,24 @@ class DocumentService:
 
     def translations(self) -> list[dict]:
         return list(self._store().translations()["entries"])
+
+    def first_run(self) -> dict:
+        """What the first-run screen states (UX-2.14). No document data."""
+        from nabu.install.pins import MODELS
+
+        pin = MODELS.get(self.cfg.model or "")
+        store = self._store()
+        return {"show": not store.config_data().get("first_run_done", False),
+                "model": self.cfg.model,
+                "model_size_gb": round(pin.size_bytes / 10**9, 1) if pin else None,
+                "seconds_per_page": self.cfg.model_seconds_per_page,
+                "store": str(store.paths.data_dir)}
+
+    def first_run_seen(self) -> None:
+        store = self._store()
+        data = store.config_data()
+        data["first_run_done"] = True
+        store.save_config(data)
 
     def delete_translation(self, entry_id: str) -> None:
         if not self._store().delete_translation(entry_id):

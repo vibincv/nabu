@@ -16,14 +16,23 @@ export class ApiError extends Error {
   }
 }
 
+export const NOT_RUNNING = "Nabu is not running. Open Nabu again from its shortcut, then reload this page.";
+const SESSION_ENDED = "This window belongs to a Nabu session that has ended. Reload the page.";
+
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(path, {
-    ...init,
-    credentials: "same-origin",
-    cache: "no-store",
-    referrerPolicy: "no-referrer",
-    headers: { ...(init.headers ?? {}), "x-nabu-token": token },
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      credentials: "same-origin",
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+      headers: { ...(init.headers ?? {}), "x-nabu-token": token },
+    });
+  } catch {
+    throw new ApiError(0, NOT_RUNNING); // fetch rejects only when nothing answers
+  }
+  if (res.status === 401) throw new ApiError(401, SESSION_ENDED); // Nabu restarted: new token
   if (!res.ok) {
     let message = `request failed (${res.status})`;
     try {

@@ -24,8 +24,19 @@ export interface TranslationEntry {
   scope?: string | null;
 }
 
+export interface FirstRun {
+  show: boolean;
+  model: string | null;
+  model_size_gb: number | null;
+  seconds_per_page: number | null;
+  store: string;
+}
+
 export interface Backend {
   readonly live: boolean;
+  firstRun(): Promise<FirstRun>;
+  firstRunSeen(): Promise<void>;
+  quit(): Promise<void>;
   current(): Promise<{ document_id: string | null; state: string | null }>;
   upload(files: File[]): Promise<string>;
   events(id: string, onEvent: (e: ReadEvent) => void): Promise<void>;
@@ -57,6 +68,13 @@ const tpl = (tid: string) => `/api/templates/${encodeURIComponent(tid)}`;
 
 export const liveBackend: Backend = {
   live: true,
+  firstRun: () => api<FirstRun>("/api/first-run"),
+  firstRunSeen: async () => {
+    await api("/api/first-run", "POST");
+  },
+  quit: async () => {
+    await api("/api/quit", "POST");
+  },
   current: () => api(`/api/documents`),
   upload: uploadFiles,
   events: readEvents,
@@ -124,6 +142,9 @@ export function fixtureBackend(): Backend {
 
   return {
     live: false,
+    firstRun: async () => ({ show: false, model: null, model_size_gb: null, seconds_per_page: null, store: "" }),
+    firstRunSeen: async () => {},
+    quit: async () => {},
     current: async () => ({ document_id: null, state: null }),
     upload: async () => "fixture",
     events: async (_id, onEvent) => onEvent({ type: "done" }),

@@ -50,6 +50,19 @@ class OllamaRuntime:
             raise ModelUnavailable(f"the local model runtime returned an error (HTTP {r.status_code})")
         return [m.get("name", "") for m in r.json().get("models", [])]
 
+    def digests(self) -> dict[str, str]:
+        """Installed model -> manifest sha256, for the installer's pin check (FR-1.12)."""
+        r = self._http.request("GET", "/api/tags")
+        if r.status_code != 200:
+            raise ModelUnavailable(f"the local model runtime returned an error (HTTP {r.status_code})")
+        return {m.get("name", ""): m.get("digest", "") for m in r.json().get("models", [])}
+
+    def delete(self, model: str) -> None:
+        """Remove a model (used when a pulled model fails its pinned digest)."""
+        r = self._http.request("DELETE", "/api/delete", {"model": model})
+        if r.status_code >= 300 and r.status_code != 404:
+            raise ModelUnavailable(f"could not remove {model} (HTTP {r.status_code})")
+
     def chat(self, req: ChatRequest) -> str:
         user: dict = {"role": "user", "content": req.user}
         if req.images:

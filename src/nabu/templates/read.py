@@ -2,8 +2,10 @@
 name suggestions and hidden labels from a similar template (FR-5.6, DD-2.5).
 
 For each template field, in the template's order:
-1. find the printed label near the anchor box (widened by the tolerance); if it moved further,
-   the nearest copy on the page; the value box is the label box plus value_offset;
+1. place the template page on this one (templates.align: one scale + shift fitted from the
+   labels and landmarks found); find the printed label where the fit puts it, or the nearest
+   copy; the value box is the label box plus value_offset. A field with no printed label is
+   read at its page position through the same fit;
 2. the value is the words centred inside that box (widened by the tolerance), continued to the
    right along the same line while the gap stays small, so a longer value is read whole;
 3. office and text files: the rest of the line, or the next table cell, after the label.
@@ -24,7 +26,7 @@ from nabu.lang import detect
 from nabu.model.client import ModelClient
 from nabu.model.types import Box, CropField
 from nabu.ocr.words import GRID, Page, Reading, Word, lines_from_words, union
-from nabu.templates import centre_in, find_label, fold, label_matches, widen
+from nabu.templates import align, centre_in, find_label, fold, label_matches
 from nabu.templates.link import find_in_lines, paginated
 
 log = logging.getLogger(__name__)
@@ -75,9 +77,15 @@ def _text(words: list[Word]) -> str | None:
     return text.strip().lstrip(":：").strip() or None
 
 
-def _read_paginated(page: Page, anchor: dict, tol: float) -> tuple[str | None, Box | None,
-                                                                    Box | None, str | None]:
-    """(value, value box, expected box, label as printed on this document)."""
+def _scaled(offset: Box, s: float) -> Box:
+    return tuple(round(v * s) for v in offset)  # type: ignore[return-value]
+
+
+def _read_paginated(page: Page, anchor: dict, tol: float, fit: align.Fit,
+                    hit: tuple[Box, int, int] | None) -> tuple[str | None, Box | None,
+                                                               Box | None, str | None]:
+    """(value, value box, expected box, label as printed on this document). `fit` places the
+    template page on this one; `hit` is the label where the fit expects it, if found there."""
     label, abox, offset = anchor.get("printed_label"), anchor.get("box"), anchor.get("value_offset")
     if offset is None:
         return None, None, None, None
@@ -85,18 +93,17 @@ def _read_paginated(page: Page, anchor: dict, tol: float) -> tuple[str | None, B
     skip: set[int] = set()
     printed = None
     if label and abox:
-        a = tuple(abox)
-        hit = (find_label(label, page.words, near=a, within=widen(a, tol))
-               or find_label(label, page.words, near=a))
+        a = fit.box(tuple(abox))  # type: ignore[arg-type]
+        hit = hit or find_label(label, page.words, near=a)  # moved further: the nearest copy
         if hit is not None:
             lb, i, j = hit
             skip = set(range(i, j + 1))
             printed = " ".join(w.text for w in page.words[i:j + 1]).rstrip(":： ")
-            expected = _shift(lb, tuple(offset))
-        else:
-            expected = _shift(a, tuple(offset))  # label not found: where it used to be
+            expected = _shift(lb, _scaled(tuple(offset), fit.s))  # type: ignore[arg-type]
+        else:  # label not found: where it would be
+            expected = fit.box(_shift(tuple(abox), tuple(offset)))  # type: ignore[arg-type]
     else:
-        expected = tuple(offset)  # type: ignore[assignment]  # absolute (no label)
+        expected = fit.box(tuple(offset))  # type: ignore[arg-type]  # no label: page position
     assert expected is not None
     expected = tuple(max(0, min(GRID, v)) for v in expected)  # type: ignore[assignment]
     words = _value_words(page, _value_area(expected, tol), skip)
@@ -114,17 +121,28 @@ def read_linked(reading: Reading, t: dict, cfg: Config, model: ModelClient | Non
     fields: list[Field] = []
     model_used = False
     rereads: list[tuple[Field, Page, Box]] = []
+    placed: dict[int, tuple[align.Placement, dict[int, tuple[Box, int, int]]]] = {}
+    if paginated(reading):  # one fit per page, from its labels and landmarks
+        for p in reading.pages:
+            items = align.anchors(t, p.n)
+            pl = align.place(items, p, cfg.anchor_tolerance)
+            placed[p.n] = (pl, {items[k].field: h for k, h in pl.hits.items()  # type: ignore[misc]
+                                if items[k].field is not None})
     for i, tf in enumerate(t.get("fields") or [], 1):
         a = tf.get("anchor") or {}
         label = a.get("printed_label")
         tol = a.get("tolerance") or cfg.anchor_tolerance
         value = box = expected = None
         printed = None
+        supported = False  # a label-less value placed by anchors found on this document
         page_n = a.get("page") or 1
         page = by_n.get(page_n)
         if page is not None and page_n not in missing_pages:
             if paginated(reading):
-                value, box, expected, printed = _read_paginated(page, a, tol)
+                pl, label_hits = placed.get(page_n, (align.Placement(), {}))
+                value, box, expected, printed = _read_paginated(page, a, tol, pl.fit,
+                                                                label_hits.get(i - 1))
+                supported = not (label and a.get("box")) and pl.found > 0
             elif label:
                 for p in reading.pages:
                     found, value = find_in_lines(label, p)
@@ -133,7 +151,7 @@ def read_linked(reading: Reading, t: dict, cfg: Config, model: ModelClient | Non
                         break
         f = Field(id=f"f{i}", name=tf["name"], printed_label=printed or label, value=value,
                   value_type=tf.get("value_type", "text"), page=page_n, source="template",
-                  confidence=1.0 if value is not None and printed else 0.6,
+                  confidence=1.0 if value is not None and (printed or supported) else 0.6,
                   lang=detect.field_language(printed or label or "", value,
                                              page.lang if page else None),
                   box=box, box_source=_box_source(page) if box else None,
@@ -145,8 +163,8 @@ def read_linked(reading: Reading, t: dict, cfg: Config, model: ModelClient | Non
                 rereads.append((f, page, expected))
             else:
                 f.flag("needs_review")
-        elif not printed:
-            f.flag("needs_review")  # read where the label used to be, label not seen
+        elif not printed and not supported:
+            f.flag("needs_review")  # read where the label used to be, nothing seen to confirm
         fields.append(f)
     for f, page, expected in rereads:  # FR-5.9: one crop per failed field, never the page
         if cancelled() or model is None:

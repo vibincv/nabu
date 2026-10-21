@@ -1,8 +1,10 @@
 """Score a document against every template; link outcome (FR-5.1 to FR-5.4). No model calls.
 
-Score = share of the template's anchors found on the document: the printed label is present on
-the anchor's page, centred inside the anchor's box widened by the anchor tolerance. Only words
-and boxes from reading are used, so linking needs no model (FR-5.1).
+Score = share of the template's anchors found on the document. Anchors are the printed labels
+and the landmarks (fixed printed text that is not a value). Each is looked up on its page, one
+scale + shift is fitted from the matches (a photo is framed differently each time), and an
+anchor counts when it sits where the fit puts it, within the anchor tolerance (templates.align).
+Only words and boxes from reading are used, so linking needs no model (FR-5.1).
 
 - Fewer pages than the template: scored on the pages present; the missing pages are reported.
 - More pages, or a page of another shape (aspect ratio differs by more than SHAPE_TOLERANCE),
@@ -18,7 +20,7 @@ from dataclasses import dataclass, field
 
 from nabu.config import Config
 from nabu.ocr.words import Page, Reading
-from nabu.templates import describe, find_label, fold, header, label_matches, widen
+from nabu.templates import align, describe, fold, header, label_matches
 
 log = logging.getLogger(__name__)
 
@@ -98,17 +100,9 @@ def score(reading: Reading, t: dict, cfg: Config) -> Score:
     present = len(reading.pages)
     missing = list(range(present + 1, len(shapes) + 1))
     total = found = 0
-    for f in fields:
-        a = f.get("anchor") or {}
-        if not a.get("printed_label") or not a.get("box") or not a.get("page"):
-            continue  # a field the user drew: nothing printed to look for
-        if a["page"] > present:
-            continue
-        total += 1
-        page = reading.pages[a["page"] - 1]
-        area = widen(tuple(a["box"]), a.get("tolerance") or cfg.anchor_tolerance)
-        if find_label(a["printed_label"], page.words, within=area) is not None:
-            found += 1
+    for page in reading.pages:  # labels and landmarks, placed through one fit per page
+        pl = align.place(align.anchors(t, page.n), page, cfg.anchor_tolerance)
+        total, found = total + pl.total, found + pl.found
     return Score(found / total if total else 0.0, missing)
 
 

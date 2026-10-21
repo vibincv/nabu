@@ -96,6 +96,7 @@ export interface VerifySummary {
   format_suggestion?: string;
   changes?: Changes;
   labels?: string[]; // printed labels that would be written to disk (FR-7.1)
+  landmarks?: { new: string[]; update: string[] }; // fixed printed lines a save would write
 }
 
 export interface Changes {
@@ -112,6 +113,7 @@ export interface SaveBody {
   region?: string;
   format?: string;
   template_id?: string;
+  landmarks_excluded?: string[];
 }
 
 export interface TemplateSummary extends TemplateInfo {

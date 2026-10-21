@@ -2,11 +2,53 @@
 
 Nabu reads documents on your own machine. You check every field it finds and correct anything wrong. It then gives you a JSON file. Nothing leaves the machine, and Nabu never stores the values it reads.
 
-> **Status:** M1 reading engine. The library reads PDFs (text layer or scan), images, office and text files; finds fields with fixed rules (digital) or the local model (scans); and gives English output by value-type rules. The review window does not use it yet (M2), and templates come in M3 (see [Roadmap](#roadmap)).
+> **Status:** M4 installer. Done so far: the reading engine (M1), the review window and JSON output (M2), templates (M3), and the per-user installer with model bootstrap (M4). Windows is tested end to end. `install.sh` (Linux, macOS) is covered by dry-run tests only (see [Roadmap](#roadmap)).
 >
 > "Nabu" is a codename until the trademark search is done (FRD Q10).
 
 The source of truth is the FRD: *Nabu — Functional Requirements Document v1.1*. Requirement IDs in the code (FR-x, AR-x, DD-x, API-x) refer to it.
+
+## Install (users)
+
+Build a release folder (developers: see below). Then, on the user's machine, run one of these from that folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -DryRun   # Windows: print the plan, change nothing
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+```bash
+sh install.sh --dry-run    # Linux / macOS
+sh install.sh
+```
+
+The script first checks the release files against `SHA256SUMS` and fetches a pinned `uv` (checksum checked). Then it creates Nabu's own Python environment with hash-pinned packages. No admin rights or system Python are needed.
+
+Next it runs `python -m nabu.install`, which:
+
+- reuses a running Ollama and any installed models;
+- otherwise offers the pinned Ollama build (sha256 checked) and the model for this machine's tier, showing size, disk needed and location first;
+- checks a pulled model against its pinned digest;
+- offers OCR language packs;
+- writes the config and adds the **Nabu** shortcut;
+- does a test read of a bundled synthetic sample.
+
+Running it again downloads nothing. Options: `--model NAME|none`, `--yes`, `--no-shortcut`.
+
+Where the app goes:
+
+- Windows: `%LOCALAPPDATA%\Nabu\` (`uv`, `python`, `app`)
+- Linux: `~/.local/share/nabu-app`
+- macOS: `~/Library/Application Support/Nabu App`
+
+The store (config, templates) stays where DD-5 puts it. To uninstall, delete that folder and the shortcut. Run `nabu forget --all` first to remove learned data.
+
+To build the release folder you need `uv` and a built UI:
+
+```bash
+cd ui && npm ci && npm run build && cd ..
+python install/build_release.py --out dist/release   # wheel, hashed requirements.txt, scripts, SHA256SUMS
+```
 
 ## Quick start (development)
 
@@ -71,6 +113,8 @@ src/nabu/
   hardening.py      core dumps off, safe logging
   session.py        in-memory session (AD-8)
   doctor.py         machine report (FR-1.1)
+  app.py            what the shortcut runs: open the window, start Nabu if needed (FR-1.11)
+  install/          model bootstrap (§7.6): plan, pins, pinned fetcher, shortcut, sample
   store/            the only disk writer + no-values guard (AR-2, AR-7)
   model/            pluggable model layer (FR-10): client, runtimes, profiles, tiers, evaluate
   server/           review window API + UI host (10.2)
@@ -82,7 +126,9 @@ src/nabu/
   discovery/        fixed rules for digital files, model call for scans (FR-4)
   fields/           working result types, grounding on OCR words, value shapes (AD-2, FR-9.6)
   lang/             language detection, translation memory read path, translation (FR-9)
-  templates/ output/  stubs, filled in M2-M3
+  templates/        linking, template read, template write (FR-5, FR-7)
+  output/           output JSON (DD-3)
+install/            install.ps1, install.sh, build_release.py (release folder)
 ui/                 Vite + TypeScript review UI; builds into src/nabu/server/ui_dist
 fixtures/           synthetic only, never real documents
 tests/              offline; tests/stub_ollama.py mimics the runtime

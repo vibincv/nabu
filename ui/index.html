@@ -28,6 +28,7 @@
       </label>
       <span id="mode" class="mode" role="status"></span>
       <button id="templates-open" type="button">Templates</button>
+      <button id="quit" type="button" hidden>Quit Nabu</button>
       <button id="close-doc" type="button" hidden>Close document</button>
       <button id="verify" class="primary" type="button" hidden>Verify</button>
     </header>
@@ -124,7 +125,9 @@
           This document only <span class="muted">— no template change</span></label>
       </fieldset>
       <div id="save-changes" class="save-changes"></div>
-      <p class="muted">Values are never stored. Only field names, value types, positions and the printed labels above are written.</p>
+      <div id="save-landmarks" class="save-changes"></div>
+      <p id="save-unlinkable" class="warn" hidden>This template has no printed labels and no fixed text to recognise the form by, so future documents will not link to it. You can still pick it with "Change template".</p>
+      <p class="muted">Values are never stored. Only field names, value types, positions, the printed labels and the fixed text above are written.</p>
       <div class="dialog-actions">
         <button id="save-cancel" type="button">Cancel</button>
         <button id="save-confirm" class="primary" type="button">Save</button>
@@ -155,6 +158,21 @@
       </details>
       <div class="dialog-actions">
         <button id="tm-close" type="button">Close</button>
+      </div>
+    </dialog>
+
+    <!-- First run (UX-2.14), shown once -->
+    <dialog id="first-run-dialog" aria-labelledby="first-run-title">
+      <h2 id="first-run-title">Before you start</h2>
+      <ul class="first-run">
+        <li>Everything stays on this machine. Nabu sends nothing over the internet while it reads.</li>
+        <li>Values are never stored. Templates keep field names, printed labels and their positions only.</li>
+        <li id="fr-model"></li>
+        <li>Templates and settings are stored in <code id="fr-store"></code>.</li>
+        <li>Browser extensions can read this window while it is open. For sensitive documents, use a browser profile without extensions.</li>
+      </ul>
+      <div class="dialog-actions">
+        <button id="fr-ok" class="primary" type="button">Start</button>
       </div>
     </dialog>
 

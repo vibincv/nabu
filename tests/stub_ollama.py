@@ -37,7 +37,8 @@ class _Handler(BaseHTTPRequestHandler):
         if self._failed():
             return
         if self.path == "/api/tags":
-            self._send(200, {"models": [{"name": m} for m in self.server.models]})
+            self._send(200, {"models": [{"name": m, "digest": self.server.digests.get(m, "")}
+                                        for m in self.server.models]})
         elif self.path == "/v1/models":
             self._send(200, {"object": "list", "data": [{"id": m} for m in self.server.models]})
         else:
@@ -71,9 +72,21 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        length = int(self.headers.get("content-length", 0))
+        body = json.loads(self.rfile.read(length) or b"{}")
+        self.server.calls.append(("DELETE", self.path, body))
+        if self.path == "/api/delete" and body.get("model") in self.server.models:
+            self.server.models.remove(body["model"])
+            self._send(200, {})
+        else:
+            self._send(404, {"error": "not found"})
+
+
 class _Server(ThreadingHTTPServer):
     calls: list
     models: list[str]
+    digests: dict[str, str]
     responses: list[str]
     fail_next: tuple[int, dict] | None
 
@@ -83,6 +96,7 @@ class StubOllama:
         self._srv = _Server(("127.0.0.1", 0), _Handler)
         self._srv.calls = []
         self._srv.models = models or ["stub-vl:test"]
+        self._srv.digests = {}
         self._srv.responses = []
         self._srv.fail_next = None
         self._t = threading.Thread(target=self._srv.serve_forever, daemon=True)
@@ -94,6 +108,14 @@ class StubOllama:
     @property
     def calls(self) -> list:
         return self._srv.calls
+
+    @property
+    def digests(self) -> dict[str, str]:
+        return self._srv.digests
+
+    @property
+    def models(self) -> list[str]:
+        return self._srv.models
 
     @property
     def responses(self) -> list[str]:

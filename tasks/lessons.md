@@ -39,3 +39,29 @@
 - **2026-10-14: The heredoc rule, once more.** A Python edit in `python - <<'EOF'` with no
   backslash still failed on quoting (unexpected EOF). Writing the script to the scratchpad with the
   Write tool and running it worked first time. Rule: large scripted edits go into a file, always.
+
+## 2026-10-14 M4: test the real launch path, not a simulation of it
+- A Bash repro with `sys.stdout = None` passed, but the real `pythonw` start of the shortcut
+  died in uvicorn's log setup. Only running the actual shortcut command showed it. For entry
+  points that differ by host (pythonw, services, shortcuts), run the real binary and capture
+  errors to a file before calling it working.
+- Python heredocs that write shell or Python source turn `\n`/`\r` escapes into real line
+  breaks (twice this session). Use the Edit tool for any text that contains escapes.
+- An installer that skips by version string never installs a rebuilt wheel with the same
+  version. Key "already installed" on the artefact hash.
+
+## 2026-10-14 "Something went wrong" report
+- On Windows a venv `python.exe` is a launcher that starts the real interpreter as a child.
+  `Stop-Process` on the launcher leaves the server running; use `taskkill /PID <id> /T /F`.
+  Killing a test server that way left a page open with no server behind it.
+- The UI's catch-all message hid the cause (fetch rejects with TypeError when nothing answers),
+  and `.catch(() => [])` made the template manager claim "No templates yet" with no server.
+  Map transport failures to a message that says what to do; never read an error as "empty".
+
+## 2026-10-14 PAN card template linked at 0.00
+- M3 was designed and tested only on "Label: value" documents. An ID card prints values with no
+  label, so the template stored no anchors and could never link, and saving accepted it
+  silently. Test every learned artefact on the document shapes the product targets (ID cards,
+  receipts), and make a save that cannot work say so.
+- A plain least-squares fit made a different layout "the same form, moved"; the existing
+  Format B test caught it. Keep negative tests (must NOT link) next to every looser matcher.

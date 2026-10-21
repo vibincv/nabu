@@ -1,3 +1,86 @@
+# M3 fix: templates for documents without printed labels (approved 2026-10-14, "Fix templates first") - done, awaiting owner retest
+
+Found by the owner on a PAN card: the template saved with printed_label null on every field, so
+linking scored 0.00 and nothing could be read.
+
+- [x] Landmarks (DD-2 addition `landmarks: [{text, page, box}]`): up to 6 runs of printed words
+      (a line split at wide gaps) that are not kept labels, overlap no field box (removed fields
+      included), have few digits, OCR confidence >= 0.8, are not session values, appear once.
+      Ranked by OCR confidence, then length.
+- [x] templates/align.py: candidate fits (none, each match, each pair), most agreeing wins,
+      refined; uniform scale 0.75-1.33; a move over 20% of the page is another layout.
+- [x] Linking and reading go through the fit; label-less values placed with landmark support are
+      not flagged needs_review.
+- [x] Save dialog: landmarks listed with an opt-out box; warning when nothing can link.
+      Update keeps only landmarks seen again (the list only shrinks, never adds text).
+- [x] tests/test_landmarks.py (6): label-less card links and reads, shifted + zoomed card,
+      other document does not link, update shrinks landmarks, fit unit tests.
+
+## Review
+- 360 passed, 4 skipped; ruff, tsc clean; UI rebuilt.
+- Limit: zoom needs landmarks spread over the page; two lines close together cannot tell zoom
+  from shift. Provisional: MAX_MOVE 200, RUN_GAP 30, MIN_LANDMARK_CONF 0.8, MAX_LANDMARKS 6.
+- Privacy (Q22): landmarks are text that was never a field; the dialog lists each one with an
+  opt-out. Needs an FRD note.
+- The owner's existing PAN template has no landmarks and never links: delete and save again.
+
+# M4 Portable installer (approved 2026-10-14: uv + wheel, Windows tested + install.sh dry-run, first run + Quit in M4) - done
+
+Scope: FR-1.2 to FR-1.12, §7.6 flow, MH-1 to MH-9, FR-1.11 shortcut and Quit, UX-2.14 first run.
+
+## Decisions (confirmed)
+- M4-1 Release folder: install.ps1, install.sh, nabu wheel, requirements.txt, SHA256SUMS. Changed
+  during build: `uv venv` + `uv pip install --require-hashes` (from uv.lock) instead of
+  `uv tool install`, so every Python package is hash-pinned as well.
+- M4-2 Windows tested end to end; install.sh dry-run tests only (Q1).
+- M4-3 First-run screen and Quit button in M4.
+- M4-4 Installer logic in `python -m nabu.install`; CLI contract (10.1) unchanged.
+
+## 0. Spike (results)
+- [x] Ollama 0.40.3 rejects `name@sha256:…` ("invalid model name"). The /api/tags digest equals the
+      sha256 of the registry manifest (checked for qwen3.5:4b and :9b), so: pull by tag, compare,
+      delete and stop on mismatch.
+- [x] Ollama v0.40.3 assets pinned (Windows Inno Setup, PrivilegesRequired=lowest, starts the app
+      after a silent install). Note: released 2026-10-11, pinned because it is the version tested
+      here with qwen3.5.
+- [x] uv 0.12.19 (2026-09-25) pinned for 6 platforms.
+
+## 1-4. Built
+- [x] `install/plan.py` (pure, deterministic), `pins.py`, `fetch.py` (child process, pin key only),
+      `__main__.py` (detect, consent, runtime install/start, health, pull + digest, timed model
+      check, OCR packs via `nabu langs pull`, config, shortcut, sample read), `shortcut.py`.
+- [x] `nabu/app.py`: shortcut entry; reuses a running Nabu (recognised by its 401 reply).
+- [x] Quit Nabu button, first-run dialog, GET/POST /api/first-run.
+- [x] Bundled synthetic sample `src/nabu/install/sample.pdf`.
+- [x] install.ps1, install.sh, build_release.py; uv cache off; skip keyed on wheel sha256.
+- [~] MH-6: the chosen model is timed on the sample after install and shown on the first-run
+      screen. Not done: timing every tier BEFORE the user chooses (only installed models could be
+      timed without downloading).
+
+## 5. Tests and evidence
+- [x] tests/test_install.py (22): every plan path, checksum and digest mismatch, dry-run identical
+      and changes nothing, install.sh and install.ps1 dry runs, shortcut, first run, pythonw stdio.
+- [x] Windows end to end in temporary LOCALAPPDATA/APPDATA/NABU_HOME: install 180 s, re-run 24 s
+      with no download, the real .lnk starts Nabu, a second click reuses it, first run shown once,
+      Quit stops the server.
+- [x] README install section.
+
+## Review (2026-10-14)
+- 353 passed, 4 skipped; ruff and tsc clean; UI rebuilt.
+- Bug found only by running the real shortcut: pythonw has no stdout, uvicorn's log setup raised
+  and the server never started. Fixed in nabu/app.py, with a regression test.
+- Install size: app venv + Python 3.12 = 372 MB (Python 61 MB). NFR-2 says 120 MB provisional;
+  M1 already measured ~270 MB for the reading stack. Needs an owner decision on the budget.
+- FRD additions to report: config keys `first_run_done`, `model_seconds_per_page`; route
+  /api/first-run; digest check after pull instead of pull by digest (FR-1.12 wording).
+- Not tested for real: runtime download/install path (Ollama already present here), model pull
+  path (only with the stub), install.sh on Linux/macOS, Linux runtime needs GNU tar with zstd.
+- No uninstall command (not in FR-1); README says what to delete.
+- Security review (TOCTOU): runtime download moved from the shared temp dir to a user-only
+  <data_dir>/downloads (symlink refused), sha256 re-checked in the installer right before running,
+  file and folder removed after; .part created O_EXCL|O_NOFOLLOW 0600. DD-6 addition: transient
+  downloads/ folder, no values.
+
 # M3 Templates: linking, saving, reuse (approved 2026-10-14: synthetic thresholds, page aspect in header) - done
 
 Scope: FR-5, FR-7, FR-6.5, FR-6.12 (real rule), FR-9.8 remember, FR-12 templates/translations,

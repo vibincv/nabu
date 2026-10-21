@@ -67,6 +67,8 @@ class Config(BaseModel):
     ui_port: int = 8765
     upload_limit_mb: int = 100
     telemetry: bool = False  # always false; present for transparency
+    first_run_done: bool = False  # UX-2.14 screen seen (FRD addition, M4)
+    model_seconds_per_page: float | None = None  # measured by the installer (MH-6; FRD addition)
 
     @field_validator("model_endpoint")
     @classmethod

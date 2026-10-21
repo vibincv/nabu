@@ -84,6 +84,7 @@ async function attempt(fn: () => Promise<void>): Promise<void> {
     notice(null);
     await fn();
   } catch (e) {
+    if (!(e instanceof ApiError)) console.error(e); // a bug in this page; shown in DevTools only
     notice(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
   }
 }
@@ -200,7 +201,9 @@ async function closeDocument(): Promise<void> {
   state.images.clear();
   // FR-11.3: the window keeps no document text once the document is closed.
   for (const list of ["fields", "removed-list", "page-messages", "page", "summary-issues"]) $(list).replaceChildren();
-  for (const list of ["save-changes", "link-choices", "name-options", "save-target"]) $(list).replaceChildren();
+  for (const list of ["save-changes", "save-landmarks", "link-choices", "name-options", "save-target"])
+    $(list).replaceChildren();
+  saveSummary = null;
   for (const id of ["page-text", "summary-text", "banner-text", "tr-term"]) $(id).textContent = "";
   for (const id of ["doc-type", "name-input", "tr-input", "save-type", "save-format"]) {
     $<HTMLInputElement>(id).value = "";
@@ -210,6 +213,8 @@ async function closeDocument(): Promise<void> {
   if (id) await backend.close(id).catch(() => undefined);
   show("upload");
   $("mode").textContent = "Local · nothing leaves this machine";
+  $("quit").hidden = false;
+  void showFirstRun();
 }
 
 /** Any edit means the server needs a new Verify before it serves the output (API-4). */
@@ -731,9 +736,49 @@ function openSave(s: VerifySummary): void {
       return o;
     }),
   );
+  saveSummary = s;
   renderChanges(s);
   syncSave();
   $<HTMLDialogElement>("save").showModal();
+}
+
+let saveSummary: VerifySummary | null = null;
+
+/** Fixed printed lines that help recognise the form (M3 fix). They are written to disk, so each
+ * is listed with a box to leave it out: a line that was never a field could still be personal. */
+function renderLandmarks(): void {
+  const choice = saveChoice();
+  const lines = choice === "new" || choice === "update" ? (saveSummary?.landmarks?.[choice] ?? []) : [];
+  const box = $("save-landmarks");
+  const before = new Set(uncheckedLandmarks());
+  box.replaceChildren();
+  if (lines.length) {
+    box.append(el("h3", "", "Fixed text stored to recognise this form (untick anything personal)"));
+    for (const text of lines) {
+      const label = el("label", "choice");
+      const cb = el("input");
+      cb.type = "checkbox";
+      cb.checked = !before.has(text);
+      cb.dataset.landmark = text;
+      cb.addEventListener("change", syncUnlinkable);
+      label.append(cb, ` ${text}`);
+      box.append(label);
+    }
+  }
+  syncUnlinkable();
+}
+
+function uncheckedLandmarks(): string[] {
+  return [...document.querySelectorAll<HTMLInputElement>("#save-landmarks input[data-landmark]")]
+    .filter((cb) => !cb.checked)
+    .map((cb) => cb.dataset.landmark!);
+}
+
+function syncUnlinkable(): void {
+  const choice = saveChoice();
+  const kept = document.querySelectorAll("#save-landmarks input[data-landmark]:checked").length;
+  $("save-unlinkable").hidden =
+    !(choice === "new" || choice === "update") || (saveSummary?.labels ?? []).length > 0 || kept > 0;
 }
 
 function renderChanges(s: VerifySummary): void {
@@ -773,12 +818,13 @@ function syncSave(): void {
     (choice === "update" && !!$<HTMLSelectElement>("save-target").value) ||
     (isNew && !!$<HTMLInputElement>("save-type").value.trim() && !!fmt.value.trim());
   $<HTMLButtonElement>("save-confirm").disabled = !ready;
+  renderLandmarks();
 }
 
 async function confirmSave(): Promise<void> {
   const choice = saveChoice();
   if (!choice) return;
-  const body: SaveBody = { choice };
+  const body: SaveBody = { choice, landmarks_excluded: uncheckedLandmarks() };
   if (choice === "new") {
     body.document_type = $<HTMLInputElement>("save-type").value.trim();
     body.region = $<HTMLSelectElement>("save-region").value;
@@ -858,6 +904,35 @@ function askConfirm(text: string, action: string): Promise<boolean> {
   });
 }
 
+async function showFirstRun(): Promise<void> {
+  const info = await backend.firstRun().catch(() => null);
+  if (!info?.show) return;
+  const model = info.model
+    ? `Model ${info.model}` +
+      (info.model_size_gb ? `: ${info.model_size_gb} GB on disk` : "") +
+      (info.seconds_per_page ? `, about ${Math.round(info.seconds_per_page)} s per page on this machine` : "") +
+      ". Saved templates make repeat documents fast."
+    : "No local AI model installed. Digital files and saved templates still work.";
+  $("fr-model").textContent = model;
+  $("fr-store").textContent = info.store;
+  const dialog = $<HTMLDialogElement>("first-run-dialog");
+  dialog.showModal();
+  $("fr-ok").onclick = () => {
+    dialog.close();
+    void backend.firstRunSeen();
+  };
+}
+
+async function quitNabu(): Promise<void> {
+  if (state.docId && !(await askConfirm("Quit Nabu? The open document is closed and not kept.", "Quit"))) return;
+  await backend.quit().catch(() => undefined);
+  document.body.replaceChildren();
+  const p = document.createElement("p");
+  p.className = "stopped";
+  p.textContent = "Nabu has stopped. You can close this tab. Open Nabu again from its shortcut.";
+  document.body.append(p);
+}
+
 function askRename(what: string, current: string): Promise<string | null> {
   const dialog = $<HTMLDialogElement>("rename-dialog");
   const input = noLeakInput($<HTMLInputElement>("rename-input"));
@@ -884,7 +959,7 @@ function askRename(what: string, current: string): Promise<string | null> {
 
 async function openTemplates(): Promise<void> {
   await attempt(async () => {
-    await loadTemplates();
+    state.groups = await backend.templates(); // errors shown, not read as "no templates"
     renderTree(null);
     await renderTranslations();
     $<HTMLDialogElement>("tm-dialog").showModal();
@@ -1069,6 +1144,7 @@ async function download(): Promise<void> {
 }
 
 function wire(): void {
+  $("quit").addEventListener("click", () => void quitNabu());
   // upload
   const input = $<HTMLInputElement>("file-input");
   $("choose").addEventListener("click", () => input.click());
@@ -1209,6 +1285,8 @@ async function start(): Promise<void> {
     return;
   }
   $("mode").textContent = "Local · nothing leaves this machine";
+  $("quit").hidden = false;
+  void showFirstRun();
   // A reloaded window resumes the open document instead of being locked out of a new one.
   const open = await backend.current().catch(() => ({ document_id: null, state: null }));
   if (open.document_id && (open.state === "ready" || open.state === "reading")) {

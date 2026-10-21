@@ -193,3 +193,14 @@ button.primary.danger { background: var(--missing); color: #fff; }
 .history { font-size: 13px; padding-left: 18px; }
 .tm-translations { margin-top: 12px; font-size: 13px; }
 @media (max-width: 640px) { .tm { grid-template-columns: 1fr; } }
+
+/* M4: first run (UX-2.14) and Quit (FR-1.11) */
+.first-run { margin: 0 0 12px; padding-left: 20px; line-height: 1.5; }
+.first-run li { margin-bottom: 6px; }
+.first-run code { word-break: break-all; }
+#first-run-dialog { max-width: 520px; }
+.stopped { margin: 20vh auto; max-width: 480px; padding: 0 16px; text-align: center; font-size: 1.1rem; }
+
+/* M3 fix: landmarks in the save dialog */
+.warn { color: var(--review); margin: 8px 0; }
+#save-landmarks .choice { display: block; margin: 2px 0; }

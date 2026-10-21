@@ -374,6 +374,13 @@ def create_app(port: int, token: str | None = None, on_quit: Callable[[], None] 
         return JSONResponse({"entries": service().translations()})
 
     @handled
+    async def first_run(request: Request) -> Response:
+        if request.method == "POST":
+            service().first_run_seen()
+            return JSONResponse({"ok": True})
+        return JSONResponse(service().first_run())
+
+    @handled
     async def output(request: Request) -> Response:
         name, data = doc_of(request).output()
         return Response(data, media_type="application/json",
@@ -402,6 +409,7 @@ def create_app(port: int, token: str | None = None, on_quit: Callable[[], None] 
         Route("/api/templates/{template_id}", template, methods=["GET", "DELETE", "PATCH"]),
         Route("/api/templates/{template_id}/history", history),
         Route("/api/templates/{template_id}/rollback", rollback, methods=["POST"]),
+        Route("/api/first-run", first_run, methods=["GET", "POST"]),
         Route("/api/translations", translations),
         Route("/api/translations/{entry_id}", translations, methods=["DELETE"]),
     ]
