@@ -103,11 +103,22 @@ def _fields(result: WorkingResult, reading: Reading, cfg: Config,
     return out
 
 
-def _removed_labels(result: WorkingResult, base: dict | None) -> list[str]:
+def _removed_labels(result: WorkingResult, base: dict | None, values: list[str]) -> list[str]:
     kept = {(f.printed_label or "").casefold() for f in _kept(result)}
     labels = list((base or {}).get("removed_labels", []))
     labels += [f.printed_label for f in result.fields if f.removed and f.printed_label]
-    return [lb for lb in dict.fromkeys(labels) if lb.casefold() not in kept]
+    return [lb for lb in _no_values(dict.fromkeys(labels), values) if lb.casefold() not in kept]
+
+
+def _no_values(names: Iterable[str], values: list[str]) -> list[str]:
+    """Names of removed fields without those that carry a value: a label-less document gets
+    labels taken from its printed values (AR-7). Such a label never recurs, so nothing is lost."""
+    return [n for n in names if not find_values(n, values)]
+
+
+def _change(kind: str, result: WorkingResult, base: dict | None, values: list[str]) -> dict:
+    c = changes(result, base)
+    return {"kind": kind, **c, "removed": _no_values(c["removed"], values)}
 
 
 def changes(result: WorkingResult, base: dict | None) -> dict:
@@ -228,6 +239,7 @@ def _without(found: list[dict], excluded: Iterable[str]) -> list[dict]:
 def build_new(result: WorkingResult, reading: Reading, cfg: Config, document_type: str,
               region: str | None, format_name: str, existing: Sequence[dict],
               values: Iterable[str] = (), excluded: Iterable[str] = ()) -> dict:
+    values = list(values)
     key, fid = type_key(document_type), format_id(format_name)
     ids = {header(t).get("id") for t in existing}
     tid, n = f"tpl_{key}_{region or 'none'}_{fid}"[:120], 2
@@ -239,18 +251,19 @@ def build_new(result: WorkingResult, reading: Reading, cfg: Config, document_typ
         "template": {"id": tid, "document_type": document_type, "document_type_key": key,
                      "region": region, "format": {"id": fid, "name": format_name},
                      "version": 1, "pages": page_shapes(reading),
-                     "change": {"kind": "created", **changes(result, None)}},
+                     "change": _change("created", result, None, values)},
         "fields": _fields(result, reading, cfg, None),
         "landmarks": _without(landmarks(result, reading, values), excluded),
-        "removed_labels": _removed_labels(result, None),
+        "removed_labels": _removed_labels(result, None, values),
     }
 
 
 def build_update(base: dict, result: WorkingResult, reading: Reading, cfg: Config,
                  values: Iterable[str] = (), excluded: Iterable[str] = ()) -> dict:
+    values = list(values)
     h = dict(header(base))
     h["version"] = int(h["version"]) + 1
-    h["change"] = {"kind": "updated", **changes(result, base)}
+    h["change"] = _change("updated", result, base, values)
     if h.get("pages") is not None and paginated(reading) and len(reading.pages) >= len(h["pages"]):
         h["pages"] = page_shapes(reading)
     marks = (_kept_landmarks(base, reading, cfg) if "landmarks" in base and base["landmarks"]
@@ -258,7 +271,7 @@ def build_update(base: dict, result: WorkingResult, reading: Reading, cfg: Confi
     return {"schema_version": SCHEMA_VERSION, "template": h,
             "fields": _fields(result, reading, cfg, base),
             "landmarks": _without(marks, excluded),
-            "removed_labels": _removed_labels(result, base)}
+            "removed_labels": _removed_labels(result, base, values)}
 
 
 def landmarks_to_store(result: WorkingResult, reading: Reading, cfg: Config, values: Iterable[str],

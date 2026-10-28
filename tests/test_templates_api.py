@@ -138,6 +138,22 @@ def assert_no_values(nabu_home):
         assert v not in blob, f"a value reached the store: {v!r}"
 
 
+def test_removed_field_labelled_by_a_value_is_left_out(client, store, nabu_home):  # AR-7
+    # A label-less card: discovery takes a printed value as a label. Removing that field must
+    # not write the value as a removed label or name, nor refuse the save.
+    data = docgen.pdf([[(60, 80, "Invoice no: INV-0042"), (60, 110, "Date: 2026-01-05"),
+                        (60, 140, "INV-0042 copy: yes")]])
+    doc_id, d = open_doc(client, data)
+    junk = field(d, "INV-0042 copy")
+    client.patch(f"/api/documents/{doc_id}/fields/{junk['id']}", json={"removed": True})
+    save_new(client, doc_id)
+    tid = json.loads(client.get(f"/api/documents/{doc_id}/output").content)["template_id"]
+    close(client, doc_id)
+    t = store.load_template(tid)
+    assert t["removed_labels"] == [] and t["template"]["change"]["removed"] == []
+    assert "INV-0042" not in store_bytes(nabu_home).decode("utf-8")
+
+
 def test_save_new_then_link_with_edited_names(client, store, nabu_home):  # FR-7 (a)(b), FR-5 (a)(e)
     tid = learn_a(client)
     t = store.load_template(tid)
