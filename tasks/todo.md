@@ -1,3 +1,17 @@
+# M3.3 Owner retest fixes (2026-10-28) - done, awaiting owner retest
+
+- [x] Save refused on an Aadhaar card ("in: removed, removed_labels"): a removed field labelled by
+      a printed value. write.py leaves such names and labels out (they never recur). Test added.
+- [x] DOB read the date, the name and card text: each update stored the box of what was read, so
+      the PAN template's DOB box grew 34 -> 62 -> 107 grid units over v1-v3. Fixed in read.py
+      (lines centred in the box; else the one nearest line; words found as a label or landmark
+      never join a value) and documents.py (an edited value printed on the page moves the box).
+      Tests: printed line under a value, landmark inside a grown box, edit + update keeps one line.
+- [x] Owner's PAN template rolled back to v1 (saved as v4).
+- Result: 386 passed, 4 skipped; ruff clean.
+- Not done: an edited value not printed as typed (a translation, a fix of an OCR error) keeps the
+  read box; drawing the box again is the way to correct it.
+
 # M3.2 Linking on real photos, template folder, export folder (approved 2026-10-21) - done, awaiting owner retest
 
 Owner retest: a second PAN card did not link; the template had to be picked by hand.

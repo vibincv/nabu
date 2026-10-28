@@ -153,6 +153,81 @@ def test_update_keeps_only_landmarks_seen_again(client, store):  # noqa: F811
     close(client, doc_id)
 
 
+# Owner retest 2026-10-28: DOB read the date, the name and printed card text. Each update stored
+# the box of what was read, so the box grew by a line per save. Here the printed line sits just
+# under the date, as "Permanent Account Number" does on a real PAN card.
+TIGHT = "Permanent Account Number"
+
+
+def tight_card(values, dx=0.0, dy=0.0):
+    lines = [(dx + 60, dy + 60, STATIC[0]), (dx + 60, dy + 100, STATIC[2]),
+             (dx + 60, dy + 294, TIGHT), (dx + 60, dy + 420, STATIC[3])]
+    lines += [(dx + 60, dy + y, v) for y, v in zip(Y, values, strict=True)]
+    return docgen.pdf([lines])
+
+
+def learn_tight(c, boxes=None):
+    doc_id, d = open_doc(c, tight_card(CARD1), "pan1.pdf")
+    base = f"/api/documents/{doc_id}"
+    for f in d["fields"]:
+        c.patch(f"{base}/fields/{f['id']}", json={"removed": True})
+    for name, y in zip(NAMES, Y, strict=True):
+        box = (boxes or {}).get(name) or grid_box(y)
+        assert c.post(f"{base}/fields", json={"name": name, "page": 1, "box": box}).status_code == 201
+    c.post(f"{base}/verify")
+    r = c.post(f"{base}/save", json={"choice": "new", "document_type": "ID card", "region": "IN",
+                                     "format": "PAN card"})
+    assert r.status_code == 200, r.text
+    tid = json.loads(c.get(f"{base}/output").content)["template_id"]
+    close(c, doc_id)
+    return tid
+
+
+def dob_height(st, tid):
+    o = next(f for f in st.load_template(tid)["fields"] if f["name"] == "Date of Birth")
+    return o["anchor"]["value_offset"][3] - o["anchor"]["value_offset"][1]
+
+
+def test_printed_line_under_a_value_is_not_read(client, store):  # noqa: F811
+    tid = learn_tight(client)
+    assert TIGHT in [lm["text"] for lm in store.load_template(tid)["landmarks"]]
+    doc_id, d = open_doc(client, tight_card(CARD2, dx=10, dy=6), "pan2.pdf")
+    assert d["link"]["outcome"] == "linked"
+    assert values_of(d) == dict(zip(NAMES, CARD2, strict=True))
+    close(client, doc_id)
+
+
+def test_landmark_inside_a_grown_box_is_not_read(client, store, nabu_home):  # noqa: F811
+    tid = learn_tight(client)
+    path = next(p for p in nabu_home.rglob("*.json")
+                if "versions" not in p.parts and json.loads(p.read_text("utf-8")).get("template",
+                                                                                    {}).get("id") == tid)
+    t = json.loads(path.read_text("utf-8"))  # a box grown before this fix (the owner's v3)
+    dob = next(f for f in t["fields"] if f["name"] == "Date of Birth")
+    dob["anchor"]["value_offset"][3] = grid_box(294)[3]
+    path.write_text(json.dumps(t), "utf-8")
+    doc_id, d = open_doc(client, tight_card(CARD2), "pan2.pdf")
+    assert values_of(d)["Date of Birth"] == CARD2[2]
+    close(client, doc_id)
+
+
+def test_edited_value_moves_the_box_so_updates_do_not_grow_it(client, store):  # noqa: F811
+    tall = [grid_box(Y[2])[0], grid_box(Y[2])[1], grid_box(Y[2])[2], grid_box(Y[3])[3]]
+    tid = learn_tight(client, boxes={"Date of Birth": tall})  # drawn over two lines by mistake
+    doc_id, d = open_doc(client, tight_card(CARD2), "pan2.pdf")
+    base = f"/api/documents/{doc_id}"
+    dob = next(f for f in d["fields"] if f["name"] == "Date of Birth")
+    assert dob["value"] != CARD2[2]  # two lines read: the box says so
+    client.patch(f"{base}/fields/{dob['id']}", json={"value": CARD2[2]})
+    client.post(f"{base}/verify")
+    assert client.post(f"{base}/save", json={"choice": "update", "template_id": tid}).status_code == 200
+    close(client, doc_id)
+    assert dob_height(store, tid) < 30  # one line, where the date is printed
+    doc_id, d = open_doc(client, tight_card(CARD1, dx=8, dy=5), "pan3.pdf")
+    assert values_of(d)["Date of Birth"] == CARD1[2]
+    close(client, doc_id)
+
+
 # ---- the fit itself --------------------------------------------------------------------------
 
 def page_of(items, width=595, height=842):

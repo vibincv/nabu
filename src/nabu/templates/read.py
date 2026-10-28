@@ -6,8 +6,10 @@ For each template field, in the template's order:
    labels and landmarks found); find the printed label where the fit puts it, or the nearest
    copy; the value box is the label box plus value_offset. A field with no printed label is
    read at its page position through the same fit;
-2. the value is the words centred inside that box (widened by the tolerance), continued to the
-   right along the same line while the gap stays small, so a longer value is read whole;
+2. the value is the lines centred inside that box (sideways widened by the tolerance); only
+   when none is, the one nearest line within the margin. Continued to the right along the line
+   while the gap stays small, so a longer value is read whole. Words found as a label or a
+   landmark of the template are printed card text, never part of a value;
 3. office and text files: the rest of the line, or the next table cell, after the label.
 A field with no value is "not found". With a model installed and template_reread on, only a crop
 around the expected box is sent to the model (source model_reread); otherwise "needs review".
@@ -48,13 +50,25 @@ def _value_area(expected: Box, tol: float) -> Box:
             min(GRID, expected[2] + dx), min(GRID, expected[3] + dy))
 
 
-def _value_words(page: Page, area: Box, skip: set[int]) -> list[Word]:
+def _cy(b: Box) -> float:
+    return (b[1] + b[3]) / 2
+
+
+def _value_words(page: Page, expected: Box, tol: float, skip: set[int]) -> list[Word]:
     words = page.words
+    area = _value_area(expected, tol)
     picked = [i for i, w in enumerate(words)
               if i not in skip and w.box is not None and centre_in(w.box, area)]
-    if not picked:
+    inside = [i for i in picked if expected[1] <= _cy(words[i].box) <= expected[3]]  # type: ignore[arg-type]
+    if not inside and picked:  # the value moved a little: the one nearest line, never two
+        mid = _cy(expected)
+        near = min(picked, key=lambda i: abs(_cy(words[i].box) - mid))  # type: ignore[arg-type]
+        nb = words[near].box
+        assert nb is not None
+        inside = [i for i in picked if nb[1] <= _cy(words[i].box) <= nb[3]]  # type: ignore[arg-type]
+    if not inside:
         return []
-    chosen = set(picked)
+    chosen = set(inside)
     grown = True
     while grown:  # continue to the right along the same line
         grown = False
@@ -78,22 +92,23 @@ def _text(words: list[Word]) -> str | None:
 
 
 def _read_paginated(page: Page, anchor: dict, tol: float, fit: align.Fit,
-                    hit: tuple[Box, int, int] | None) -> tuple[str | None, Box | None,
-                                                               Box | None, str | None]:
+                    hit: tuple[Box, int, int] | None, printed_text: set[int]) -> tuple[
+                        str | None, Box | None, Box | None, str | None]:
     """(value, value box, expected box, label as printed on this document). `fit` places the
-    template page on this one; `hit` is the label where the fit expects it, if found there."""
+    template page on this one; `hit` is the label where the fit expects it, if found there;
+    `printed_text` the words found as the template's labels and landmarks."""
     label, abox, offset = anchor.get("printed_label"), anchor.get("box"), anchor.get("value_offset")
     if offset is None:
         return None, None, None, None
     expected: Box | None = None
-    skip: set[int] = set()
+    skip = set(printed_text)
     printed = None
     if label and abox:
         a = fit.box(tuple(abox))  # type: ignore[arg-type]
         hit = hit or find_label(label, page.words, near=a)  # moved further: the nearest copy
         if hit is not None:
             lb, i, j = hit
-            skip = set(range(i, j + 1))
+            skip |= set(range(i, j + 1))
             printed = " ".join(w.text for w in page.words[i:j + 1]).rstrip(":： ")
             expected = _shift(lb, fit.offset(tuple(offset)))  # type: ignore[arg-type]
         else:  # label not found: where it would be
@@ -102,7 +117,7 @@ def _read_paginated(page: Page, anchor: dict, tol: float, fit: align.Fit,
         expected = fit.box(tuple(offset))  # type: ignore[arg-type]  # no label: page position
     assert expected is not None
     expected = tuple(max(0, min(GRID, v)) for v in expected)  # type: ignore[assignment]
-    words = _value_words(page, _value_area(expected, tol), skip)
+    words = _value_words(page, expected, tol, skip)
     if not words:
         return None, None, expected, printed
     return _text(words), union([w.box for w in words]), expected, printed
@@ -117,13 +132,14 @@ def read_linked(reading: Reading, t: dict, cfg: Config, model: ModelClient | Non
     fields: list[Field] = []
     model_used = False
     rereads: list[tuple[Field, Page, Box]] = []
-    placed: dict[int, tuple[align.Placement, dict[int, tuple[Box, int, int]]]] = {}
+    placed: dict[int, tuple[align.Placement, dict[int, tuple[Box, int, int]], set[int]]] = {}
     if paginated(reading):  # one fit per page, from its labels and landmarks
         for p in reading.pages:
             items = align.anchors(t, p.n)
             pl = align.place(items, p, cfg.anchor_tolerance, align.page_aspect(t, p.n))
             placed[p.n] = (pl, {items[k].field: h for k, h in pl.hits.items()  # type: ignore[misc]
-                                if items[k].field is not None})
+                                if items[k].field is not None},
+                           {n for _, i, j in pl.hits.values() for n in range(i, j + 1)})
     for i, tf in enumerate(t.get("fields") or [], 1):
         a = tf.get("anchor") or {}
         label = a.get("printed_label")
@@ -135,9 +151,9 @@ def read_linked(reading: Reading, t: dict, cfg: Config, model: ModelClient | Non
         page = by_n.get(page_n)
         if page is not None and page_n not in missing_pages:
             if paginated(reading):
-                pl, label_hits = placed.get(page_n, (align.Placement(), {}))
+                pl, label_hits, printed_text = placed.get(page_n, (align.Placement(), {}, set()))
                 value, box, expected, printed = _read_paginated(page, a, tol, pl.fit,
-                                                                label_hits.get(i - 1))
+                                                                label_hits.get(i - 1), printed_text)
                 supported = not (label and a.get("box")) and pl.found > 0
             elif label:
                 for p in reading.pages:

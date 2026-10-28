@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from nabu import pipeline
 from nabu.config import Config
 from nabu.errors import NabuError
+from nabu.fields.grounding import find_run
 from nabu.fields.types import Field, WorkingResult
 from nabu.model.types import VALUE_TYPES
 from nabu.ocr.words import Reading, lines_from_words
@@ -132,6 +133,7 @@ class ReviewDocument:
             f.value_en = value
             f.translation["value"] = "user"
             self._keep(value)
+            self._move_box(f, value)
             if value is not None and "not_found" in f.status:
                 f.status.remove("not_found")
         if "value_type" in body:
@@ -182,6 +184,21 @@ class ReviewDocument:
         result.fields.append(f)
         self._changed()
         return f
+
+    def _move_box(self, f: Field, value: str | None) -> None:
+        """An edited value printed on the page takes its box there, so a template saved from
+        this document stores where the value is, not what was read (owner retest 2026-10-28:
+        a box grew by a line with each update). Text not printed as typed keeps the box."""
+        reading = self.session.reading
+        if not value or f.page is None or not isinstance(reading, Reading):
+            return
+        page = next((p for p in reading.pages if p.n == f.page), None)
+        if page is None:
+            return
+        box, exact = find_run(value, page.words, near=f.box)
+        if box is not None and exact:
+            f.box = box
+            f.box_source = "ocr" if page.source == "ocr" else "text_layer"
 
     def _words_in(self, box: tuple[int, int, int, int], page_n: int) -> tuple[str | None, str | None]:
         reading = self.session.reading
