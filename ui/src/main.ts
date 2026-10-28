@@ -833,7 +833,14 @@ async function confirmSave(): Promise<void> {
     body.template_id = $<HTMLSelectElement>("save-target").value;
   }
   await attempt(async () => {
-    await backend.save(state.docId!, body);
+    const saved = await backend.save(state.docId!, body);
+    const note = $("done-note");
+    note.textContent = saved.exported
+      ? `Also saved to the export folder: ${saved.exported}`
+      : saved.export_error
+        ? `Not saved to the export folder: ${saved.export_error}. Download the JSON instead.`
+        : "The JSON file is ready to download. Nabu keeps no copy.";
+    note.classList.toggle("warn", !!saved.export_error);
     $<HTMLDialogElement>("save").close();
     if (backend.live) {
       state.wr = await backend.result(state.docId!); // header now names the saved template

@@ -116,6 +116,12 @@ export interface SaveBody {
   landmarks_excluded?: string[];
 }
 
+/** Where the saved output was also written (config `export_dir`); both null when export is off. */
+export interface SaveResult {
+  exported: string | null;
+  export_error: string | null;
+}
+
 export interface TemplateSummary extends TemplateInfo {
   fields: number;
   updated_at: string | null;

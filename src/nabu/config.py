@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from nabu.errors import ConfigError
 from nabu.model.profiles import ModelProfile
@@ -69,6 +69,17 @@ class Config(BaseModel):
     telemetry: bool = False  # always false; present for transparency
     first_run_done: bool = False  # UX-2.14 screen seen (FRD addition, M4)
     model_seconds_per_page: float | None = None  # measured by the installer (MH-6; FRD addition)
+    templates_dir: str | None = None  # absolute; None: <data dir>/templates (FRD addition, M3.2)
+    # Absolute; None: off. Each saved document's output is written there for another service:
+    # the one place values reach disk (AR-7 exception, owner decision 2026-10-21).
+    export_dir: str | None = None
+
+    @field_validator("templates_dir", "export_dir")
+    @classmethod
+    def _folder_absolute(cls, v: str | None, info: ValidationInfo) -> str | None:
+        if v is not None and not Path(v).is_absolute():
+            raise ConfigError(f"{info.field_name} must be an absolute folder path; got {v}")
+        return v
 
     @field_validator("model_endpoint")
     @classmethod

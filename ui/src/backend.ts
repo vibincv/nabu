@@ -10,6 +10,7 @@ import type {
   PageInfo,
   ReadEvent,
   SaveBody,
+  SaveResult,
   Template,
   TemplateGroup,
   VerifySummary,
@@ -48,7 +49,7 @@ export interface Backend {
   setHeader(id: string, body: Partial<Header>): Promise<Header>;
   reorder(id: string, order: number[]): Promise<WorkingResult>;
   verify(id: string): Promise<VerifySummary>;
-  save(id: string, body: SaveBody): Promise<void>;
+  save(id: string, body: SaveBody): Promise<SaveResult>;
   output(id: string): Promise<Blob>;
   close(id: string): Promise<void>;
   relink(id: string, templateId: string | null): Promise<void>;
@@ -93,9 +94,7 @@ export const liveBackend: Backend = {
   setHeader: (id, body) => api<Header>(`${doc(id)}/header`, "PATCH", body),
   reorder: (id, order) => api<WorkingResult>(`${doc(id)}/pages/order`, "PUT", { order }),
   verify: (id) => api<VerifySummary>(`${doc(id)}/verify`, "POST"),
-  save: async (id, body) => {
-    await api(`${doc(id)}/save`, "POST", body);
-  },
+  save: (id, body) => api<SaveResult>(`${doc(id)}/save`, "POST", body),
   output: (id) => apiBlob(`${doc(id)}/output`),
   close: async (id) => {
     await api(doc(id), "DELETE");
@@ -202,7 +201,8 @@ export function fixtureBackend(): Backend {
       };
     },
     save: async () => {
-      wr.verified = true; // fixture mode saves no template
+      wr.verified = true; // fixture mode saves no template and exports nothing
+      return { exported: null, export_error: null };
     },
     output: async () =>
       new Blob([JSON.stringify({ note: "fixture mode: no output is produced" }, null, 2)], {

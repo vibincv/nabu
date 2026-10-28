@@ -344,8 +344,30 @@ class ReviewDocument:
         h = template_header(t) if t else {}
         self.saved_template = (h["id"], h["version"]) if t else None
 
-    def save(self, body: dict) -> None:
-        """The save dialog's choice (FR-7). Cancel is simply not calling this (FR-7.6)."""
+    def save(self, body: dict) -> dict:
+        """The save dialog's choice (FR-7). Cancel is simply not calling this (FR-7.6).
+        Returns where the output was exported, if the export folder is set."""
+        self._save(body)
+        return self._export()
+
+    def _export(self) -> dict:
+        """With config `export_dir` set, the confirmed output is also written there for another
+        service. A failure is reported, not raised: the save itself has already succeeded."""
+        if self.store is None or self.store.paths.export_dir is None:
+            return {"exported": None, "export_error": None}
+        name, data = self.output()
+        stamp = (self.verified_at or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
+        tag = f"{stamp}.{self.id[:8]}"  # a later scan with the same file name never overwrites
+        try:
+            path = self.store.export_output(f"{name.removesuffix('.nabu.json')}.{tag}.nabu.json",
+                                            data)
+        except NabuError as e:
+            log.warning("export failed: %s", e.message)
+            return {"exported": None, "export_error": e.message}
+        log.info("exported output %s", tag)  # not the file name: it carries the upload's name
+        return {"exported": str(path), "export_error": None}
+
+    def _save(self, body: dict) -> None:
         result = self._ready()
         choice = body.get("choice")
         if choice not in ("document_only", "new", "update"):

@@ -43,6 +43,30 @@ Where the app goes:
 
 The store (config, templates) stays where DD-5 puts it. To uninstall, delete that folder and the shortcut. Run `nabu forget --all` first to remove learned data.
 
+### Templates folder
+
+Templates go in `templates` under the store unless `config.json` names another folder:
+
+```json
+{ "templates_dir": "D:\\Nabu\\templates" }
+```
+
+The path must be absolute, and it can't be the store folder or a folder that contains it. Every command uses it, and so does the review window. `nabu doctor` shows which folder is in use. Nabu doesn't move existing templates. To keep them, copy the `templates` folder's contents into the new folder before you switch. A shared folder works for several machines, but two people saving the same template at the same moment is not guarded against. `nabu forget --templates` removes only Nabu's template files there, never other files.
+
+### Export folder (for another service)
+
+To have another program pick up each confirmed document, set an export folder in `config.json`:
+
+```json
+{ "export_dir": "D:\\Nabu\\outbox" }
+```
+
+Every Save after Verify writes the document's output JSON there, whichever save option you pick. The format is the same as the download. Files are named `<file name>.<UTC time>.<id>.nabu.json`, so a second scan with the same file name never overwrites the first. Each file is written whole before it appears. Ignore files that start with a dot: they are temporary files still being written.
+
+**These files hold the document's values (names, numbers, dates) in plain text.** This is the one place Nabu writes values to disk, so it is off unless you set the folder. The folder can't overlap Nabu's store or templates folder, so those stay free of values. Nabu never deletes exported files: the program that reads them must remove them. Protect the folder as you would the documents themselves. On Linux and macOS the files are readable only by the user who runs Nabu.
+
+If the folder can't be written, the save still succeeds. The window says why the export failed, and the JSON can still be downloaded.
+
 To build the release folder you need `uv` and a built UI:
 
 ```bash

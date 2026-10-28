@@ -1,4 +1,4 @@
-# M3.2 Linking on real photos, template folder, export folder (proposed 2026-10-21) - awaiting approval
+# M3.2 Linking on real photos, template folder, export folder (approved 2026-10-21) - done, awaiting owner retest
 
 Owner retest: a second PAN card did not link; the template had to be picked by hand.
 
@@ -35,25 +35,45 @@ Owner retest: a second PAN card did not link; the template had to be picked by h
 - Result: 366 passed, 4 skipped; ruff clean.
 
 ## 2. Template folder (config, store/paths.py, cli.py)
-- [ ] Config `templates_dir: str | None` (absolute path; None -> <data_dir>/templates).
-- [ ] StorePaths takes an optional templates root; cli.py applies it after load_config, so
-      serve, templates CLI and doctor all use the same folder. `doctor` prints the folder.
-- [ ] Existing templates are not moved automatically; README says how to copy them.
-- [ ] Tests: save + link with templates_dir set; relative path refused.
+- [x] Config `templates_dir: str | None` (absolute path; None -> <data_dir>/templates).
+- [x] StorePaths takes an optional templates root; cli.py applies it after load_config, so
+      serve (also from the shortcut, which goes through the CLI), templates CLI and doctor all
+      use the same folder. `doctor` prints the folder.
+- [x] The data folder itself, or a folder holding it, is refused (logs and OCR packs would sit
+      among the templates).
+- [x] `forget --templates` removes only Nabu's template files (<type>/<region>/<format>.json and
+      versions/), then empty folders; it no longer rmtree's the folder. Needed once the folder
+      can be one the owner chose that holds other files.
+- [x] Existing templates are not moved automatically; README section "Templates folder".
+- [x] tests/test_templates_dir.py (7): relative refused, default, save and list in the folder,
+      data folder / parent refused, forget keeps other files, CLI list and doctor use it.
+      Real CLI run on a scratch store: doctor shows the folder, both refusals named.
+- Result: 373 passed, 4 skipped; ruff clean.
+- Not guarded: two machines saving the same template at the same moment in a shared folder.
 
 ## 3. Export folder (AR-7 change: one value-bearing write path)
-- [ ] Config `export_dir: str | None`, default None (off: no disk writes, as today).
-      Refused if inside the templates folder or the data dir (the no-values scans stay valid).
-- [ ] Store.export_output(name, bytes): the only method allowed to write values. Atomic
-      (temp file in the same folder, then rename) so the service never reads a partial file.
-      Name: <source>.<UTC yyyymmddThhmmss>.<doc id 8>.nabu.json (no overwrite of an earlier scan).
-- [ ] DocumentService.save: after _confirmed, if export_dir set, write the DD-3 output.
-      Export failure -> named error to the UI; the template save stays (it already succeeded).
-- [ ] Save response carries `exported: <file name> | null`; UI shows "Exported to <folder>".
-- [ ] Product log records the file name only, never content.
-- [ ] Tests: export on each save choice; nothing written when off; value scan of the store
-      still clean; config refusing export_dir inside data dir.
-- [ ] FRD notes: AR-7 exception (export folder), new config keys.
+- [x] Config `export_dir: str | None`, default None (off: no disk writes, as today).
+      Refused if it overlaps the data or templates folder either way (no-values scans stay valid).
+- [x] Store.export_output(name, bytes): the only method allowed to write values. Atomic
+      (dot-prefixed temp file in the same folder, then rename) so the service never reads a
+      partial file. Name: <source>.<UTC yyyymmddThhmmssZ>.<doc id 8>.nabu.json.
+- [x] ReviewDocument.save: after the save, if export_dir set, write the DD-3 output.
+      Export failure -> `export_error` in the 200 reply; the save stays, download still works.
+- [x] Save reply carries `exported` (full path) and `export_error`; the "Output ready" dialog
+      says where it went, or why not ("Nabu keeps no copy" only when export is off).
+- [x] Product log records only the time + id tag, not the file name (it carries the upload's
+      name, which may be a person's name).
+- [x] tests/test_export.py (9): document-only and new-template saves export, bytes equal the
+      download, store and nabu log value-free, nothing written when off, failure keeps the
+      save, relative and overlapping folders refused. tsc clean, UI rebuilt.
+- [x] Real `nabu serve` run (scratch store, export + templates folders): upload, verify, save
+      new -> one file in the outbox with the values, template in the templates folder, no value
+      in store or templates, log line shows only the tag.
+- [ ] FRD notes: AR-7 exception (export folder), new config keys. (owner)
+- Result: 382 passed, 4 skipped; ruff clean.
+- Checked, not a leak: pdfminer logs page text at DEBUG, but hardening caps it at WARNING and
+  the product log handlers sit on the "nabu" logger only.
+- Not done: the review window was not clicked through in a browser for the new dialog text.
 
 ## Not in scope
 - Pushing to the service (it reads the folder), deleting exported files, encrypting them.

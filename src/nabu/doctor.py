@@ -138,5 +138,6 @@ def report(cfg: Config, paths: StorePaths) -> dict:
         "recommended_model": tier.model,
         "recommended_for": tier.hardware,
         "ocr": ocr_report(paths),
-        "store": {"config": str(paths.config_file), "data": str(paths.data_dir)},
+        "store": {"config": str(paths.config_file), "data": str(paths.data_dir),
+                  "templates": str(paths.templates_dir)},
     }

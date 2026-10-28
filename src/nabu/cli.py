@@ -222,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             "model": getattr(args, "model", None),
             "model_endpoint": getattr(args, "model_endpoint", None),
         })
+        paths = paths.configured(cfg)  # every command, serve included, uses one templates folder
         store = Store(paths)
 
         if args.cmd == "version":

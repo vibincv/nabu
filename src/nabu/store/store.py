@@ -3,7 +3,9 @@
 Writes: config, templates (+ previous versions), translation memory, OCR language packs,
 logs (via logging).
 Never writes: uploads, page images, working results, values (AD-8, AR-7).
-The output JSON is not written by Nabu at all: the browser downloads it (FR-8.5).
+The output JSON is downloaded by the browser (FR-8.5). The one exception: with config
+`export_dir` set, each saved document's output is also written there for another service
+(owner decision 2026-10-21); that folder never overlaps the store, which stays value-free.
 """
 
 from __future__ import annotations
@@ -279,12 +281,29 @@ class Store:
         atomic_write_bytes(self.paths.translations_file, _dump({**tm, "entries": kept}))
         return True
 
+    # ---- export folder (config `export_dir`) -----------------------------------------
+    def export_output(self, name: str, data: bytes) -> Path | None:
+        """Write one saved document's output for another service; None when export is off.
+        The only write that holds document values (AR-7 exception, owner decision 2026-10-21).
+        Atomic: a reader never sees half a file, and the temp file starts with a dot and does
+        not end in .json. Files are never deleted by Nabu; the reading service removes them."""
+        d = self.paths.export_dir
+        if d is None:
+            return None
+        if Path(name).name != name or not name.endswith(".nabu.json"):
+            raise NabuError("export file name is not valid")
+        path = d / name
+        try:
+            atomic_write_bytes(path, data)
+        except OSError as e:
+            raise NabuError(f"could not write to the export folder ({type(e).__name__})") from None
+        return path
+
     # ---- forget (FR-11.4) -------------------------------------------------------------
     def forget(self, scope: Literal["templates", "translations", "all"]) -> list[str]:
         removed: list[str] = []
-        if scope in ("templates", "all") and self.paths.templates_dir.exists():
-            removed += [str(p) for p in self.paths.templates_dir.rglob("*") if p.is_file()]
-            shutil.rmtree(self.paths.templates_dir)
+        if scope in ("templates", "all"):
+            removed += self._forget_templates()
         if scope in ("translations", "all") and self.paths.translations_file.exists():
             removed.append(str(self.paths.translations_file))
             self.paths.translations_file.unlink()
@@ -292,3 +311,23 @@ class Store:
             removed += [str(p) for p in self.paths.logs_dir.rglob("*") if p.is_file()]
             shutil.rmtree(self.paths.logs_dir)
         return removed
+
+    def _forget_templates(self) -> list[str]:
+        """Nabu's template files only (<type>/<region>/<format>.json and versions/): the folder
+        may be one the owner chose (config `templates_dir`) and hold other files."""
+        root = self.paths.templates_dir
+        if not root.exists():
+            return []
+
+        def ours(folder: Path) -> bool:  # <root>/<type key>/<region>
+            key, region = folder.parent.name, folder.name
+            return (folder.parent.parent == root and bool(_SLUG.match(key))
+                    and (region == NO_REGION_DIR or bool(_REGION.match(region))))
+
+        files = [p for p in root.glob("*/*/*.json") if ours(p.parent)]
+        files += [p for p in root.glob("*/*/versions/*.json") if ours(p.parent.parent)]
+        for p in files:
+            p.unlink()
+        for d in sorted({p.parent for p in files}, key=lambda d: len(d.parts), reverse=True):
+            self._prune(d)
+        return sorted(str(p) for p in files)

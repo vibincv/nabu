@@ -335,8 +335,7 @@ def create_app(port: int, token: str | None = None, on_quit: Callable[[], None] 
 
     @handled
     async def save(request: Request) -> Response:
-        doc_of(request).save(await _json(request))
-        return JSONResponse({"ok": True})
+        return JSONResponse({"ok": True, **doc_of(request).save(await _json(request))})
 
     @handled
     async def relink(request: Request) -> Response:
