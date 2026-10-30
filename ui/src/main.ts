@@ -3,7 +3,7 @@
 // memory; nothing is written to browser storage.
 
 import { ApiError, fixtureMode } from "./api";
-import { fixtureBackend, liveBackend, type Backend } from "./backend";
+import { demo, fixtureBackend, liveBackend, type Backend } from "./backend";
 import { REGION_CODES } from "./regions";
 import {
   VALUE_TYPES,
@@ -193,6 +193,10 @@ async function loadResult(): Promise<void> {
 
 /** Ends the session on the server (also after an error or cancel, to free the one slot). */
 async function closeDocument(): Promise<void> {
+  if (demo) {
+    location.reload(); // the demo has nothing to upload: start over on a fresh sample
+    return;
+  }
   const id = state.docId;
   state.docId = null;
   state.wr = null;
@@ -604,7 +608,9 @@ function renderHeader(): void {
   const change = $<HTMLButtonElement>("link-change");
   change.hidden = !backend.live || (wr.link.outcome === "none" && templateCount() === 0);
   change.textContent = wr.link.outcome === "ambiguous" ? "Choose template" : "Change template";
-  $("mode").textContent = `${wr.document.source_file}${backend.live ? "" : " · fixture mode, synthetic sample"}`;
+  $("mode").textContent = demo
+    ? "Demo · synthetic sample · nothing is read or sent"
+    : `${wr.document.source_file}${backend.live ? "" : " · fixture mode, synthetic sample"}`;
   fillNameOptions();
 }
 
@@ -977,7 +983,15 @@ function renderTree(selected: string | null): void {
   const tree = $("tm-tree");
   if (!state.groups.length) {
     tree.replaceChildren(
-      el("p", "muted", backend.live ? "No templates yet. Verify a document and save it as a new template." : "Fixture mode has no templates."),
+      el(
+        "p",
+        "muted",
+        backend.live
+          ? "No templates yet. Verify a document and save it as a new template."
+          : demo
+            ? "The demo keeps no templates. In Nabu, the templates you save on your machine are listed here."
+            : "Fixture mode has no templates.",
+      ),
     );
     $("tm-detail").replaceChildren();
     return;
@@ -1287,6 +1301,7 @@ async function start(): Promise<void> {
   fillRegions();
   wire();
   if (fixtureMode) {
+    if (demo) for (const id of ["close-doc", "done-close"]) $(id).textContent = "Start over";
     state.docId = "fixture";
     await loadResult();
     return;

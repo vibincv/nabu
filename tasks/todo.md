@@ -1,3 +1,67 @@
+# M5 Product page + clickable demo (approved 2026-10-29) - done, awaiting owner review
+
+Spec: LocalLens FRD §16 M5 (owner, 2026-10-29; Nabu FRD v1.1 not on disk). "Product page on the
+team site, an embedded demo of the review window on a sample licence; acceptance: published URL
+rendering the demo." Owner decisions: build locally only (owner publishes); name "Nabu", marked as
+a codename, no download or licence claims.
+
+Starting point: fixture mode (ui/src/backend.ts fixtureBackend) is already a no-network review
+window. Gaps: its sample is an invoice, not a licence, and pageImage() returns null (no page shown).
+
+## 1. Synthetic specimen licence
+- [x] fixtures/demo/licence.svg: a fictional driving licence, "SPECIMEN - synthetic" printed on it,
+      a made-up issuer and person, no real format, number scheme or emblem copied.
+- [x] fixtures/demo/working_result.licence.json: DD-1 working result for it. Fields cover every
+      status the window shows (from template, suggested, needs review, not found, not translated)
+      and one non-English label so the translation UI shows.
+- [x] Test: each field box encloses the text the SVG prints for that value (same 0-1000 grid), so
+      highlights land on the right words.
+
+## 2. Demo build (ui)
+- [x] `vite build --mode demo` -> dist/site/demo/, base "./", the licence fixture, pageImage()
+      returns the bundled SVG. The dev and server builds stay unchanged (invoice fixture,
+      ui_dist).
+- [x] The demo banner says: "Demo · synthetic sample · nothing is read or sent". Upload, Quit and
+      templates are disabled with a note, not broken.
+
+## 3. Product page
+- [x] dist/site/index.html + css, no JS needed: what Nabu does, how a document flows (read ->
+      review -> JSON), the privacy rules that are enforced today (from the README table),
+      status (M1-M4 done, Windows tested, Linux/macOS dry-run only), "Nabu is a working name".
+      The demo is embedded in an iframe, with an "open full screen" link.
+- [x] No remote fonts, scripts or images; no download link, price or licence claim.
+- [x] install/build_site.py (or an npm script) builds both into dist/site in one command.
+
+## 4. Verification
+- [x] Tests: build output has no http(s) references to other hosts; fixture box test; existing
+      suite and ruff stay green.
+- [x] Real browser run (lesson 2026-10-14): serve dist/site over a local static server, click
+      through select field, edit, translate, verify, save; check for console errors and confirm
+      network requests stay on the same origin; screenshots of the page and the demo.
+- [x] README: M5 section (how to build and publish dist/site), roadmap status.
+
+## Not in scope
+- Publishing to a team site (owner does it). Trademark (Q10) and licence choice.
+
+## Review (2026-10-29)
+- Built: `python install/build_site.py` -> dist/site (index.html, site.css, demo/). The demo is the
+  real review window in fixture mode, on the licence sample, with Start over in place of upload.
+  Its download is the real output shape (port of json_out.build), validated against
+  output.schema.json from a browser capture.
+- Browser run (Chrome, served by `python -m http.server`): page and embedded demo render; select
+  highlight, translate Conditions, accept Licence Number, Verify (10 fields, 1 not found, 1 needs
+  review, 0 not translated), Save, download, Start over, Templates. No console errors; every
+  request is same-origin (plus the browser extension's own). Page fits 390px with no horizontal
+  scroll (measured in a 390px iframe; window resize did not apply).
+- Found in the browser, fixed: (1) the window's field-name labels covered the card's printed
+  labels; the card now prints labels left of values, rows 58 units apart. (2) The save dialog
+  marked the disabled "new template" option as suggested; fixture Verify no longer suggests.
+- Tests: tests/test_demo_site.py (14): sample matches its generator, boxes enclose the SVG's text
+  (mutation-checked), statuses covered, no remote loads in page/demo sources, no release claims.
+  Full suite 400 passed, 4 skipped; ruff and tsc clean.
+- Server build unchanged: it still carries only the invoice fixture and no CSP meta (checked).
+- Not verified: Safari/Firefox; light theme; the page on the real team site.
+
 # M3.3 Owner retest fixes (2026-10-28) - done, awaiting owner retest
 
 - [x] Save refused on an Aadhaar card ("in: removed, removed_labels"): a removed field labelled by

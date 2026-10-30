@@ -74,3 +74,13 @@
 - The owner's retest failed partly on a template saved before the fix. After a fix to a learned
   artefact, say which saved artefacts it cannot repair, and check the owner's store, not only
   the tests.
+
+## 2026-10-29 M5 demo
+- A synthetic sample laid out on its own looked fine; inside the window, the field-name label
+  the window draws above every box covered the card's printed labels. Lay out a demo or test
+  document against what the viewer overlays on it, and look at it in the real window first.
+- A browser output check gave a wrong value because the page had reloaded between two JS calls
+  (state kept in `window` was gone). Do the action and the capture in one call, and check a state
+  marker (banner text) in the same call before trusting the result.
+- An Edit that "inserts above a heading" by replacing the heading line dropped the heading
+  (M3.3). When inserting before an anchor, put the anchor back in new_string and diff after.

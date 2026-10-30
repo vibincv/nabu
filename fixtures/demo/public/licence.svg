@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="680" viewBox="0 0 1000 680">
+  <!-- Synthetic specimen for the Nabu demo. Not a real document; made-up issuer and person. -->
+  <style>
+    text { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; fill: #1d2a33; }
+    .l { font-size: 16px; fill: #4c6270; }
+    .v { font-size: 24px; font-weight: 600; }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e3f1ee"/><stop offset="1" stop-color="#f6efe0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1000" height="680" rx="28" fill="url(#bg)" stroke="#9ab3ad" stroke-width="2"/>
+  <rect x="0" y="0" width="1000" height="96" rx="28" fill="#2f6f68"/>
+  <rect x="0" y="60" width="1000" height="36" fill="#2f6f68"/>
+  <text x="40" y="52" style="font-size:32px;font-weight:700;fill:#ffffff">MUSTERLAND · FÜHRERSCHEIN</text>
+  <text x="40" y="82" style="font-size:18px;fill:#d6ece8">DRIVING LICENCE · SPECIMEN</text>
+  <text x="960" y="64" text-anchor="end"
+        style="font-size:22px;font-weight:700;fill:#ffd88a">SPECIMEN</text>
+  <text x="560" y="420" text-anchor="middle" transform="rotate(-18 560 420)"
+        style="font-size:120px;font-weight:800;fill:#2f6f68;fill-opacity:0.07">SPECIMEN</text>
+  <rect x="40" y="128" width="200" height="250" rx="10" fill="#cfdcd9" stroke="#9ab3ad"/>
+  <circle cx="140" cy="222" r="50" fill="#a9bdb8"/>
+  <path d="M50 378 C 60 300, 220 300, 230 378 Z" fill="#a9bdb8"/>
+  <text class="l" x="270" y="150">Name</text>
+  <text class="v" x="450" y="150">MUSTERMANN</text>
+  <text class="l" x="270" y="208">Vorname</text>
+  <text class="v" x="450" y="208">ERIKA</text>
+  <text class="l" x="270" y="266">Geburtsdatum</text>
+  <text class="v" x="450" y="266">12.08.1990</text>
+  <text class="l" x="270" y="324">Ausstellungsdatum</text>
+  <text class="v" x="450" y="324">03.02.2021</text>
+  <text class="l" x="270" y="382">Gültig bis</text>
+  <text class="v" x="450" y="382">02.02.2036</text>
+  <text class="l" x="270" y="440">Führerscheinnr.</text>
+  <text class="v" x="450" y="440">MX-0000-4711-SPEC</text>
+  <text class="l" x="270" y="498">Klassen</text>
+  <text class="v" x="450" y="498">B, AM</text>
+  <text class="l" x="270" y="556">Anschrift</text>
+  <text class="v" x="450" y="556">Musterstraße 1, 12345 Musterstadt</text>
+  <text class="l" x="270" y="614">Auflagen</text>
+  <text class="v" x="450" y="614">Sehhilfe erforderlich</text>
+  <text class="l" x="40" y="420">Ausstellende Behörde</text>
+  <text x="960" y="662" text-anchor="end"
+        style="font-size:15px;fill:#7a8a90">SYNTHETIC SAMPLE · NOT A REAL DOCUMENT</text>
+</svg>

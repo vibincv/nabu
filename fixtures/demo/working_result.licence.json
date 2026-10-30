@@ -1,0 +1,258 @@
+{
+  "schema_version": "1.0",
+  "verified": false,
+  "document": {
+    "source_file": "synthetic_specimen_licence.png",
+    "route": "raster",
+    "model_used": true,
+    "pages": [
+      {
+        "n": 1,
+        "width_px": 1000,
+        "height_px": 680,
+        "lang": "de"
+      }
+    ]
+  },
+  "header": {
+    "document_type": "Driving licence",
+    "region": null,
+    "format": "Musterland 2021 card"
+  },
+  "link": {
+    "outcome": "linked",
+    "template_id": "tpl_driving_licence_musterland-2021",
+    "template_version": 2,
+    "score": 0.94,
+    "candidates": [],
+    "template": {
+      "template_id": "tpl_driving_licence_musterland-2021",
+      "document_type": "Driving licence",
+      "region": null,
+      "format": "Musterland 2021 card",
+      "version": 2
+    }
+  },
+  "type_guess": null,
+  "country_guess": null,
+  "fields": [
+    {
+      "id": "f1",
+      "name": "Surname",
+      "printed_label": "Name",
+      "value": "MUSTERMANN",
+      "value_en": "MUSTERMANN",
+      "value_type": "name",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        184,
+        605,
+        238
+      ],
+      "box_source": "ocr",
+      "confidence": 0.97,
+      "source": "template",
+      "status": [
+        "from_template"
+      ]
+    },
+    {
+      "id": "f2",
+      "name": "Given Names",
+      "printed_label": "Vorname",
+      "value": "ERIKA",
+      "value_en": "ERIKA",
+      "value_type": "name",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        269,
+        530,
+        324
+      ],
+      "box_source": "ocr",
+      "confidence": 0.96,
+      "source": "template",
+      "status": [
+        "from_template"
+      ]
+    },
+    {
+      "id": "f3",
+      "name": "Date of Birth",
+      "printed_label": "Geburtsdatum",
+      "value": "12.08.1990",
+      "value_en": "1990-08-12",
+      "value_type": "date",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        354,
+        605,
+        409
+      ],
+      "box_source": "ocr",
+      "confidence": 0.95,
+      "source": "template",
+      "status": [
+        "from_template"
+      ]
+    },
+    {
+      "id": "f4",
+      "name": "Issue Date",
+      "printed_label": "Ausstellungsdatum",
+      "value": "03.02.2021",
+      "value_en": "2021-02-03",
+      "value_type": "date",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        439,
+        605,
+        494
+      ],
+      "box_source": "ocr",
+      "confidence": 0.94,
+      "source": "template",
+      "status": [
+        "from_template"
+      ]
+    },
+    {
+      "id": "f5",
+      "name": "Expiry Date",
+      "printed_label": "Gültig bis",
+      "value": "02.02.2036",
+      "value_en": "2036-02-02",
+      "value_type": "date",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        525,
+        605,
+        579
+      ],
+      "box_source": "ocr",
+      "confidence": 0.52,
+      "source": "model_reread",
+      "status": [
+        "needs_review"
+      ]
+    },
+    {
+      "id": "f6",
+      "name": "Licence Number",
+      "printed_label": "Führerscheinnr.",
+      "value": "MX-0000-4711-SPEC",
+      "value_en": "MX-0000-4711-SPEC",
+      "value_type": "id",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        610,
+        709,
+        665
+      ],
+      "box_source": "ocr",
+      "confidence": 0.81,
+      "source": "model",
+      "status": [
+        "suggested"
+      ]
+    },
+    {
+      "id": "f7",
+      "name": "Categories",
+      "printed_label": "Klassen",
+      "value": "B, AM",
+      "value_en": "B, AM",
+      "value_type": "text",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        695,
+        530,
+        750
+      ],
+      "box_source": "ocr",
+      "confidence": 0.93,
+      "source": "template",
+      "status": [
+        "from_template"
+      ]
+    },
+    {
+      "id": "f9",
+      "name": "Address",
+      "printed_label": "Anschrift",
+      "value": "Musterstraße 1, 12345 Musterstadt",
+      "value_en": "Musterstraße 1, 12345 Musterstadt",
+      "value_type": "address",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        781,
+        947,
+        835
+      ],
+      "box_source": "ocr",
+      "confidence": 0.9,
+      "source": "template",
+      "status": [
+        "from_template"
+      ]
+    },
+    {
+      "id": "f10",
+      "name": "Conditions",
+      "printed_label": "Auflagen",
+      "value": "Sehhilfe erforderlich",
+      "value_en": "Sehhilfe erforderlich",
+      "value_type": "text",
+      "lang": "de",
+      "page": 1,
+      "box": [
+        444,
+        866,
+        768,
+        921
+      ],
+      "box_source": "ocr",
+      "confidence": 0.74,
+      "source": "model",
+      "status": [
+        "not_translated"
+      ],
+      "translation": {
+        "value": "untranslated"
+      }
+    },
+    {
+      "id": "f8",
+      "name": "Issuing Authority",
+      "printed_label": "Ausstellende Behörde",
+      "value": null,
+      "value_en": null,
+      "value_type": "text",
+      "lang": "de",
+      "page": 1,
+      "box": null,
+      "box_source": null,
+      "confidence": 0.0,
+      "source": "template",
+      "status": [
+        "not_found"
+      ]
+    }
+  ]
+}

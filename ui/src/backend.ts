@@ -1,7 +1,7 @@
 // What the review window talks to: the local API (live), or the bundled synthetic fixture
 // (fixture mode, used for development and the M5 demo; no network at all).
 
-import fixture from "@fixtures/working_result.sample.json";
+import fixture from "@sample"; // the invoice, or the licence in the demo build (vite.config.ts)
 import { api, apiBlob, readEvents, uploadFiles } from "./api";
 import type {
   Field,
@@ -116,6 +116,42 @@ export const liveBackend: Backend = {
   },
 };
 
+/** The M5 demo build (`vite build --mode demo`). */
+export const demo = import.meta.env.MODE === "demo";
+
+/** The output JSON as nabu.output.json_out.build makes it, so the demo download looks real. */
+function outputOf(wr: WorkingResult): unknown {
+  const kept = wr.fields.filter((f) => !f.removed);
+  const fields = kept.map((f) => {
+    const value = f.value_en ?? f.value;
+    return f.value !== null && value !== null && f.value !== value ? { name: f.name, value, original: f.value } : { name: f.name, value };
+  });
+  const seen = new Set<string>();
+  const terms: { term: string; lang: string }[] = [];
+  for (const f of kept) {
+    if (!f.lang || !/^[a-z]{2}$/.test(f.lang)) continue;
+    for (const [part, text] of [["name", f.printed_label], ["value", f.value]] as const) {
+      if (f.translation[part] === "untranslated" && text && !seen.has(`${text}\u0000${f.lang}`)) {
+        seen.add(`${text}\u0000${f.lang}`);
+        terms.push({ term: text, lang: f.lang });
+      }
+    }
+  }
+  return {
+    schema_version: wr.schema_version,
+    document_type: wr.header.document_type,
+    region: wr.header.region,
+    format: wr.header.format,
+    template_id: wr.link.template_id,
+    template_version: wr.link.template_version,
+    source_file: wr.document.source_file,
+    verified_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    fields,
+    not_found: fields.filter((f) => f.value === null).map((f) => f.name),
+    untranslated_terms: terms,
+  };
+}
+
 /** Fixture mode mirrors the server's rules closely enough to demo the window. */
 export function fixtureBackend(): Backend {
   // The fixture predates some DD-1 additions; missing keys get their defaults.
@@ -148,7 +184,8 @@ export function fixtureBackend(): Backend {
     upload: async () => "fixture",
     events: async (_id, onEvent) => onEvent({ type: "done" }),
     result: async () => structuredClone(wr),
-    pageImage: async () => null,
+    // The demo's card image is a static file next to the page; the dev fixture has none.
+    pageImage: async () => (demo ? (await fetch("licence.svg")).blob() : null),
     editField: async (_id, fieldId, body) => {
       const f = find(fieldId);
       if (typeof body.name === "string") (f.name = body.name), mark(f);
@@ -191,8 +228,7 @@ export function fixtureBackend(): Backend {
         duplicates,
         can_confirm: duplicates.length === 0,
         save_dialog_needed: true,
-        save_choices: { document_only: true, new: false, update: false },
-        suggested: "new",
+        save_choices: { document_only: true, new: false, update: false }, // no store: no suggestion
         update_targets: [],
         document_types: [],
         format_suggestion: "Format A",
@@ -205,7 +241,7 @@ export function fixtureBackend(): Backend {
       return { exported: null, export_error: null };
     },
     output: async () =>
-      new Blob([JSON.stringify({ note: "fixture mode: no output is produced" }, null, 2)], {
+      new Blob([JSON.stringify(demo ? outputOf(wr) : { note: "fixture mode: no output is produced" }, null, 2)], {
         type: "application/json",
       }),
     close: async () => {},

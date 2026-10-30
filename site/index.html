@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Product page (M5). Static: no scripts, nothing loaded from another site. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="description" content="Nabu reads documents on your own machine. You check every field it finds, then it gives you a JSON file. Nothing leaves the machine." />
+    <title>Nabu · local document reader</title>
+    <link rel="stylesheet" href="site.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap top-row">
+        <span class="brand">Nabu</span>
+        <span class="tag">working name</span>
+        <nav>
+          <a href="#demo">Demo</a>
+          <a href="#how">How it works</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#status">Status</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero wrap">
+        <h1>Read documents on your own machine.</h1>
+        <p class="lead">
+          Nabu finds the fields on a scan, a phone photo, a PDF or an office file. It shows where each
+          one is on the page, and you check and correct every field before it gives you a JSON file.
+          Nothing leaves the machine, and Nabu never stores the values it reads.
+        </p>
+        <p><a class="button" href="#demo">Try the demo</a></p>
+      </section>
+
+      <section id="demo" class="wrap">
+        <h2>Try the review window</h2>
+        <p>
+          This is Nabu's real review window, running in your browser on a made-up specimen licence.
+          It reads nothing and sends nothing: the fields are already filled in, as Nabu would show them.
+        </p>
+        <ol class="try">
+          <li>Click a highlight on the card, or a field in the list.</li>
+          <li>Check the <strong>Expiry Date</strong>, which is marked "needs review".</li>
+          <li>Give the German <strong>Conditions</strong> an English value.</li>
+          <li>Press <strong>Verify</strong>, save, and download the JSON.</li>
+        </ol>
+        <div class="frame">
+          <iframe src="demo/index.html" title="Nabu review window demo on a synthetic specimen licence" loading="lazy"></iframe>
+        </div>
+        <p class="muted small">
+          On a small screen, <a href="demo/index.html">open the demo full screen</a>.
+          The licence, its issuer "Musterland" and the person on it are invented.
+        </p>
+      </section>
+
+      <section id="how" class="wrap">
+        <h2>How it works</h2>
+        <div class="steps">
+          <article>
+            <h3>1. Read</h3>
+            <p>
+              Nabu checks each file by its content, not only its name. It takes text from a PDF's text
+              layer, reads scans and photos with OCR, and asks a vision model that runs on your machine
+              to find the fields.
+            </p>
+          </article>
+          <article>
+            <h3>2. Review</h3>
+            <p>
+              Every field is highlighted on the page and says how it was found: from your template,
+              suggested, needs review or not found. Rename, correct, remove, or draw a box to add a
+              field. Labels get English names; names and ID numbers are never translated.
+            </p>
+          </article>
+          <article>
+            <h3>3. Output</h3>
+            <p>
+              After you verify, Nabu gives you one JSON file with the fields in reading order and each
+              original value next to its English form. Optionally it also writes the file to a folder
+              another program reads.
+            </p>
+          </article>
+          <article>
+            <h3>4. Learn</h3>
+            <p>
+              Save a verified document as a template. The next document with the same layout is read
+              from the template, also from a photo framed or zoomed differently, and you only check it.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="privacy" class="wrap">
+        <h2>Private by design, enforced in code</h2>
+        <ul class="rules">
+          <li><strong>Only this machine.</strong> While Nabu reads, any connection to another machine is refused, DNS lookups included.</li>
+          <li><strong>The model runs locally.</strong> Nabu will not start if the model's address is not this machine.</li>
+          <li><strong>No values on disk.</strong> Values live in memory and are gone when the document closes. Templates keep positions and labels, never values; Nabu checks every write for them.</li>
+          <li><strong>Nothing leaves the window.</strong> The review window turns off spell-check and browser translation, and loads nothing from another site.</li>
+          <li><strong>Logs say what failed, not what was read.</strong> Logs keep error types only, never messages or document text.</li>
+        </ul>
+        <p class="muted small">
+          Limits apply. For example, a browser extension can read the window, and the operating system
+          can page memory to disk. The README lists every known limit.
+        </p>
+      </section>
+
+      <section id="status" class="wrap">
+        <h2>Status</h2>
+        <table class="status">
+          <tbody>
+            <tr><th scope="row">Reading engine</th><td>Done</td></tr>
+            <tr><th scope="row">Review window and JSON output</th><td>Done</td></tr>
+            <tr><th scope="row">Templates</th><td>Done; being tested on real ID cards and photos</td></tr>
+            <tr><th scope="row">Installer, Windows</th><td>Done and tested end to end</td></tr>
+            <tr><th scope="row">Installer, Linux and macOS</th><td>Written; dry-run tested only</td></tr>
+          </tbody>
+        </table>
+        <p>
+          Nabu is not available for download yet. "Nabu" is a working name until a trademark search is
+          done, and the licence has not been chosen.
+        </p>
+      </section>
+    </main>
+
+    <footer class="wrap muted small">Nabu (working name) · a local document reader</footer>
+  </body>
+</html>

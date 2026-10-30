@@ -2,7 +2,7 @@
 
 Nabu reads documents on your own machine. You check every field it finds and correct anything wrong. It then gives you a JSON file. Nothing leaves the machine, and Nabu never stores the values it reads.
 
-> **Status:** M4 installer. Done so far: the reading engine (M1), the review window and JSON output (M2), templates (M3), and the per-user installer with model bootstrap (M4). Windows is tested end to end. `install.sh` (Linux, macOS) is covered by dry-run tests only (see [Roadmap](#roadmap)).
+> **Status:** M5 product page. Done so far: the reading engine (M1), the review window and JSON output (M2), templates (M3), the per-user installer with model bootstrap (M4), and the product page with a clickable demo (M5). Windows is tested end to end. `install.sh` (Linux, macOS) is covered by dry-run tests only (see [Roadmap](#roadmap)).
 >
 > "Nabu" is a codename until the trademark search is done (FRD Q10).
 
@@ -92,6 +92,18 @@ To develop the UI on its own, run `cd ui && npm run dev`. It renders the bundled
 
 To keep test data away from your real store, set `NABU_HOME=/tmp/nabu-dev`.
 
+## Product page and demo (M5)
+
+```bash
+python install/build_site.py      # needs npm; writes dist/site
+```
+
+`dist/site` holds the product page (`site/`) and, under `demo/`, the real review window built in demo mode (`vite build --mode demo`). The demo runs on a synthetic specimen licence (`fixtures/demo`, made by `make_licence.py`) and talks to no server: edits, Verify, Save and the JSON download all happen in the browser. Upload is not offered, and Start over reloads the sample.
+
+Every file is static, and nothing loads from another site. Each page carries its Content-Security-Policy as a meta tag. Serve the folder from any static host; to look at it locally, run `python -m http.server -d dist/site`. Opening `index.html` straight from disk does not run the demo, because browsers do not run module scripts from `file://`.
+
+Publishing it is a manual step. The page says Nabu is a working name, makes no download, price or licence claim, and states which installers are tested.
+
 ## What is enforced today
 
 | Rule | Where | Test |
@@ -152,9 +164,10 @@ src/nabu/
   lang/             language detection, translation memory read path, translation (FR-9)
   templates/        linking, template read, template write (FR-5, FR-7)
   output/           output JSON (DD-3)
-install/            install.ps1, install.sh, build_release.py (release folder)
-ui/                 Vite + TypeScript review UI; builds into src/nabu/server/ui_dist
-fixtures/           synthetic only, never real documents
+install/            install.ps1, install.sh, build_release.py (release folder), build_site.py (M5 page)
+ui/                 Vite + TypeScript review UI; builds into src/nabu/server/ui_dist (demo mode: dist/site/demo)
+site/               M5 product page (static HTML + CSS)
+fixtures/           synthetic only, never real documents; demo/ is the M5 specimen licence
 tests/              offline; tests/stub_ollama.py mimics the runtime
 ```
 

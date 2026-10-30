@@ -21,6 +21,9 @@
     "paths": {
       "@fixtures/*": [
         "../fixtures/*"
+      ],
+      "@sample": [
+        "../fixtures/working_result.sample.json"
       ]
     }
   },
