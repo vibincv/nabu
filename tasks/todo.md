@@ -1,4 +1,69 @@
-# M5 Product page + clickable demo (approved 2026-10-29) - done, awaiting owner review
+# M6 Real-document trial (2026-10-30) - decisions made; task 0 approved
+
+Goal: find where Nabu fails on documents users will bring, before planning release work. Every
+M3 bug came from a real card, and only PAN and Aadhaar have been tried. Output: a ranked M6
+backlog, not fixes. The trial changes no reading code.
+
+Constraint: no CLI reads documents (FR-12.2), so every document goes through the review window by
+hand. The server log has only the link score and outcome; the rest is counted by hand unless
+task 0 is approved.
+
+## 0. Value-free trial metrics (approved 2026-10-30)
+- [x] On Verify, one log line of counts only: pages, read seconds, link outcome, fields by source
+      (template / model / rules / user-added), edited, removed, needs_review and not_found at read
+      and at Verify. No names, labels or values (FR-11.5).
+- [x] Test: tests/test_trial_metrics.py (3). The line matches a strict key=number pattern;
+      no value, typed value, label or file name appears; one line per Verify.
+- Why: about 20 documents x about 10 fields is too many edits to count reliably by hand.
+- Result: 403 passed, 4 skipped; ruff clean. The line goes to <NABU_HOME>/logs/nabu.log.
+- Not counted: accepting a "suggested" field with one click (no edit flag), and an edit to a
+  field that was later removed. Wrong boxes are not visible in counts; note them by hand.
+
+## 1. Document set (15-20, owner collects)
+Each type at least twice, so the second copy tests linking.
+- [ ] ID: PAN x3 (different photos), Aadhaar x2, driving licence x2, passport x2.
+- [ ] Business: invoice x3 (2 from the same vendor; 1 digital PDF, 1 scan), a multi-page
+      statement x1, an office file (xlsx or docx) x1.
+- [ ] Language: at least 2 non-English documents, one of them Korean (needs `nabu langs pull ko`).
+- [ ] Capture: flat scan, good phone photo, bad phone photo (angle, glare, low light), digital PDF.
+- [ ] Error inputs: encrypted PDF, unsupported type (e.g. HEIC). Check that each gets a named message.
+
+## 2. Setup
+- [ ] Scratch store: NABU_HOME=%LOCALAPPDATA%\Temp\nabu-m6, export off, no existing templates.
+- [ ] Documents in a local folder outside the repo; never copied into fixtures/ or tasks/.
+- [ ] Record `nabu doctor` (tier, model, GPU), because read times only mean something for that machine.
+
+## 3. Per document (fixed order)
+1. Upload and time the read.
+2. Note link outcome and score.
+3. Review: count correct untouched, corrected, missed (added), spurious (removed), wrong box,
+   and translation problems.
+4. Verify, then save. Use a new template for the first copy of a type, and update for later copies.
+5. Write one row in tasks/m6-trial.md.
+
+## 4. Trial sheet (tasks/m6-trial.md), value-free
+- Columns: id (D01...), type, capture, language, pages, read s, link outcome/score, fields on
+  paper, correct untouched, corrected, missed, spurious, wrong box, translation issues, notes.
+- Notes name the field, never the value: "DOB took the name line", not the date or the name.
+- [ ] Checked before commit: grep the sheet for digits runs and names; no screenshots in the repo.
+
+## 5. Results
+- [ ] Per type: share of fields right without an edit; second-copy link rate; read s per page.
+- [ ] Spot-check 3 documents' counts by hand against the screen (ledger 2026-10-06).
+- [ ] Backlog: each failure with type, frequency, cost to the user (one edit / re-draw box /
+      unusable), and a value-free way to reproduce it; ranked by frequency x cost.
+- [ ] Owner picks what goes into M6. Pass bars stay provisional until the data exists.
+- [ ] Cleanup: `nabu forget` on the scratch store; delete the document folder if the owner wants.
+
+## Decisions (owner, 2026-10-30)
+- Q1 Documents: the owner's own, family and colleagues' with their consent, and published
+  specimen images. Not company business documents, so invoices and statements come from
+  personal purchases or specimens.
+- Q2 First users' document types are not known yet, so all types are weighted equally.
+- Q3 Task 0 (metrics line) approved.
+- Q4 This machine only; read times describe this tier alone.
+
+# M5 Product page + clickable demo (approved 2026-10-29) - done, owner reviewed 2026-10-30
 
 Spec: LocalLens FRD §16 M5 (owner, 2026-10-29; Nabu FRD v1.1 not on disk). "Product page on the
 team site, an embedded demo of the review window on a sample licence; acceptance: published URL
@@ -62,7 +127,7 @@ window. Gaps: its sample is an invoice, not a licence, and pageImage() returns n
 - Server build unchanged: it still carries only the invoice fixture and no CSP meta (checked).
 - Not verified: Safari/Firefox; light theme; the page on the real team site.
 
-# M3.3 Owner retest fixes (2026-10-28) - done, awaiting owner retest
+# M3.3 Owner retest fixes (2026-10-28) - done, owner retest passed 2026-10-30
 
 - [x] Save refused on an Aadhaar card ("in: removed, removed_labels"): a removed field labelled by
       a printed value. write.py leaves such names and labels out (they never recur). Test added.
@@ -76,7 +141,7 @@ window. Gaps: its sample is an invoice, not a licence, and pageImage() returns n
 - Not done: an edited value not printed as typed (a translation, a fix of an OCR error) keeps the
   read box; drawing the box again is the way to correct it.
 
-# M3.2 Linking on real photos, template folder, export folder (approved 2026-10-21) - done, awaiting owner retest
+# M3.2 Linking on real photos, template folder, export folder (approved 2026-10-21) - done, owner retest passed 2026-10-30
 
 Owner retest: a second PAN card did not link; the template had to be picked by hand.
 

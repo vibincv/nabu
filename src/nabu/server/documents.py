@@ -16,6 +16,7 @@ import logging
 import re
 import secrets
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -74,6 +75,8 @@ class ReviewDocument:
     # The template this document is read with, or was saved to (FR-6.12); none before linking.
     template: dict | None = field(default=None, repr=False)
     saved_template: tuple[str, int] | None = None  # template id and version for the output
+    # Counts when reading finished, for the trial metrics line on Verify; never values.
+    read_counts: dict[str, float] = field(default_factory=dict, repr=False)
     cancel: threading.Event = field(default_factory=threading.Event, repr=False)
     _events: list[dict] = field(default_factory=list, repr=False)
     _cond: threading.Condition = field(default_factory=threading.Condition, repr=False)
@@ -307,6 +310,7 @@ class ReviewDocument:
                 self._confirmed(self.template)
         templates = self._templates()
         targets = self._update_targets(templates)
+        self._log_metrics(result, kept)
         doc_type, region = self.header["document_type"], self.header["region"]
         return {
             "fields": len(kept),
@@ -328,6 +332,25 @@ class ReviewDocument:
             # Landmarks a save would write, per choice; the user can leave any out (FR-7.1).
             "landmarks": self._landmarks(result, targets),
         }
+
+    def _log_metrics(self, result: WorkingResult, kept: list[Field]) -> None:
+        """M6 trial metrics: what was read and what the user changed, as counts only. Names,
+        labels and values never appear (FR-11.5); the link outcome is a fixed word."""
+        link, read = result.link or {}, self.read_counts
+        source = {s: sum(1 for f in kept if f.source in group) for s, group in (
+            ("template", ("template",)), ("model", ("model", "model_reread")),
+            ("rules", ("discovery_rules",)), ("added", ("user",)))}
+        log.info(
+            "verify metrics: pages=%d read_s=%.1f link=%s score=%.2f fields=%d template=%d"
+            " model=%d rules=%d added=%d edited=%d removed=%d needs_review=%d->%d"
+            " not_found=%d->%d",
+            len(result.pages), read.get("seconds", 0.0), link.get("outcome", "none"),
+            link.get("score") or 0.0, len(kept), source["template"], source["model"],
+            source["rules"], source["added"],
+            sum(1 for f in kept if f.source != "user" and "edited_by_user" in f.status),
+            sum(1 for f in result.fields if f.removed),
+            read.get("needs_review", 0), sum(1 for f in kept if "needs_review" in f.status),
+            read.get("not_found", 0), sum(1 for f in kept if "not_found" in f.status))
 
     def _landmarks(self, result: WorkingResult, targets: list[dict]) -> dict:
         reading = self.session.reading
@@ -550,6 +573,7 @@ class DocumentService:
         def progress(done: int, total: int, stage: str) -> None:
             doc.emit({"type": "progress", "stage": stage, "done": done, "total": total})
 
+        started = time.monotonic()
         try:
             result = work(self._readers(), progress)
         except pipeline.Cancelled:
@@ -570,6 +594,10 @@ class DocumentService:
             doc.emit({"type": "cancelled"})
             return
         doc.result = result
+        doc.read_counts = {
+            "seconds": time.monotonic() - started,
+            "needs_review": sum(1 for f in result.fields if "needs_review" in f.status),
+            "not_found": sum(1 for f in result.fields if "not_found" in f.status)}
         link = result.link or {}
         about = link.get("template") or {}
         guess = result.country_guess
