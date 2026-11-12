@@ -45,9 +45,19 @@ _COORD_WORDS = {
     "unit": "Give each box as fractions from 0 to 1 of the image, top-left origin.",
 }
 
+# M6 finding 2 (2026-10-30): asked only for "every printed label and its value", qwen3.5:9b
+# with thinking off stopped after the first field, echoed each line of a label-less ID card as
+# label and value, and listed headings as values. Measured on synthetic cards in three layouts.
 _DISCOVERY_SYSTEM = (
     "You read one document page. Return ONLY JSON matching the schema.\n"
-    "List every printed label and its value exactly as printed. Never invent a value.\n"
+    "List every field on the page: each value, with the label printed beside or above it. "
+    "Pages usually have several fields; list all of them, in reading order.\n"
+    "Some documents print a value with no label (an ID card prints the holder's name alone). "
+    "Still list it: set printed_label to null and name to a short English name for it.\n"
+    "Also list fixed printed text that is the same on every copy of this form (headings, "
+    "titles, the issuer's name, words like Signature) with kind fixed_text and value null. "
+    "Everything that differs between people or copies (names, numbers, dates) is kind field.\n"
+    "Copy values exactly as printed. Never invent a value.\n"
     "{coords}\n"
     "country_guess: ISO 3166-1 alpha-2 code, or null if unsure.\n"
     "value_type is one of: name, id, number, date, amount, address, text."
@@ -67,6 +77,7 @@ _TRANSLATE_SYSTEM = (
 _REPAIR = ("\n\nYour previous answer was not valid JSON for the required schema. "
            "Answer again with ONLY the JSON object.")
 
+_NOTHING = {"", "null", "none", "unknown", "n/a"}  # a guess written as a word for "no guess"
 _BOX = {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4}
 _NULLABLE_STR = {"type": ["string", "null"]}
 
@@ -77,10 +88,13 @@ DISCOVERY_SCHEMA = {
         "country_guess": _NULLABLE_STR,
         "fields": {"type": "array", "items": {
             "type": "object",
-            "properties": {"label": {"type": "string"}, "value": _NULLABLE_STR,
+            "properties": {"kind": {"type": "string", "enum": ["field", "fixed_text"]},
+                           "name": {"type": "string"}, "printed_label": _NULLABLE_STR,
+                           "value": _NULLABLE_STR,
                            "value_type": {"type": "string", "enum": sorted(VALUE_TYPES)},
                            "bbox": _BOX, "confidence": {"type": "number"}},
-            "required": ["label", "value", "value_type", "bbox", "confidence"],
+            "required": ["kind", "name", "printed_label", "value", "value_type", "bbox",
+                         "confidence"],
         }},
     },
     "required": ["type_guess", "country_guess", "fields"],
@@ -117,16 +131,30 @@ class _Wire(BaseModel):
 
 
 class _WireField(_Wire):
-    label: str = ""  # an item without a label is dropped, not a reason to fail the page
+    kind: str = "field"  # "fixed_text": printed form text, never a value
+    name: str = ""
+    printed_label: str | None = None
+    label: str = ""  # the earlier answer shape: the printed label, also the name
     value: str | None = None
     value_type: str = "text"
     bbox: object = None
     confidence: float = 0.0
 
-    @field_validator("label", mode="before")
+    @field_validator("name", "label", mode="before")
     @classmethod
     def _label(cls, v: object) -> str:
         return "" if v is None else str(v)
+
+    @field_validator("printed_label", mode="before")
+    @classmethod
+    def _printed(cls, v: object) -> str | None:
+        return None if v is None else (str(v).strip() or None)
+
+    def printed(self) -> str | None:
+        """The printed label; an answer in the earlier shape gives it as `label`."""
+        if "printed_label" in self.model_fields_set or "name" in self.model_fields_set:
+            return self.printed_label
+        return self.label.strip() or None
 
     @field_validator("value_type", mode="before")
     @classmethod
@@ -154,7 +182,7 @@ class _WireDiscovery(_Wire):
     @classmethod
     def _type(cls, v: object) -> str | None:
         v = str(v).strip() if v is not None else ""
-        return v[:80] or None
+        return None if v.casefold() in _NOTHING else v[:80]
 
     @field_validator("country_guess", mode="before")
     @classmethod
@@ -238,13 +266,16 @@ class ModelClient:
         wire = self._ask(system, user, (img.data,), DISCOVERY_SCHEMA, _WireDiscovery)
         fields = []
         for f in wire.fields:
-            if not f.label.strip():
+            name = (f.name or f.label).strip()
+            # Fixed text is dropped here, before its text could be registered as a value: it
+            # stays page text, so it can become a landmark.
+            if f.kind == "fixed_text" or not name:  # an item without a name is dropped
                 continue
             raw = images.raw_box(f.bbox)
             fields.append(DiscoveredField(
-                label=f.label, value=f.value, value_type=f.value_type,  # type: ignore[arg-type]
+                label=name, value=f.value, value_type=f.value_type,  # type: ignore[arg-type]
                 box=images.to_grid(raw, self.profile.coords, img.width_px, img.height_px),
-                raw_box=raw, confidence=f.confidence))
+                raw_box=raw, confidence=f.confidence, printed_label=f.printed()))
         return PageDiscovery(fields=fields, type_guess=wire.type_guess,
                              country_guess=wire.country_guess)
 

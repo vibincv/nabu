@@ -122,6 +122,30 @@ def test_digital_file_needs_no_model():
     assert not r.model_used
 
 
+def test_discovery_keeps_label_less_values_and_drops_fixed_text():
+    # M6 finding 2 (2026-10-30): asked only for "printed label and value", qwen3.5:9b echoed
+    # each line of a label-less PAN card as label and value (all dropped) and listed headings
+    # as values. The answer now names each field, says whether a label is printed, and lists
+    # fixed form text apart, never as a value, so it can still become a landmark.
+    answer = json.dumps({"type_guess": "Invoice", "country_guess": "IE", "fields": [
+        {"kind": "fixed_text", "name": "Issuer", "printed_label": None, "value": "ACME BILLING",
+         "value_type": "text", "bbox": None, "confidence": 0.9},
+        {"kind": "field", "name": "Invoice number", "printed_label": "Invoice no:",
+         "value": SECRET, "value_type": "id", "bbox": None, "confidence": 0.95},
+        {"kind": "field", "name": "Total", "printed_label": "12.50 EUR", "value": "12.50 EUR",
+         "value_type": "amount", "bbox": None, "confidence": 0.9}]})
+    session = Session()
+    with StubOllama() as stub:
+        stub.responses.append(answer)
+        r = pipeline.run(scan_uploads(), Config(), session, readers(stub, FakeOcr()))
+    got = {f.name: f.printed_label for f in r.fields}
+    # A printed label names the field (FR-9; the model's name is used only without one). A
+    # printed label equal to the value is no label: the value is printed alone.
+    assert got == {"Invoice no": "Invoice no", "Total": None}
+    assert all(f.source == "model" for f in r.fields)
+    assert "ACME BILLING".casefold() not in {v.casefold() for v in session.values()}
+
+
 def test_values_are_registered_so_the_store_refuses_them(nabu_home):
     session = Session()
     pipeline.run([Upload("a.txt", f"Invoice no: {SECRET}\n".encode())], Config(), session,

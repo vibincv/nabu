@@ -302,10 +302,18 @@ def test_install_sh_dry_run(tmp_path):  # FR-1.8 acceptance, on a faked Linux x8
     (shim / "uname").chmod(0o755)
     home = tmp_path / "home"
     home.mkdir()
-    env = {**os.environ, "HOME": str(home), "XDG_DATA_HOME": str(home / "data"),
-           "PATH": str(shim) + os.pathsep + os.environ.get("PATH", "")}
-    runs = [subprocess.run(["sh", str(rel / "install.sh"), "--dry-run"], env=env,
-                           capture_output=True, text=True, timeout=60) for _ in range(2)]
+    env = {**os.environ, "HOME": str(home), "XDG_DATA_HOME": str(home / "data")}
+    # The shim goes on PATH inside the shell, not in env: on Windows, `sh` found from PowerShell
+    # is Git's launcher (Git\bin\sh.exe), which puts its own /usr/bin ahead of the inherited
+    # PATH, so the real uname won and the test failed there. "$PWD/shim" is in the shell's own
+    # path form on every platform.
+    cmd = ["sh", "-c", 'PATH="$PWD/shim:$PATH" exec sh "$0" --dry-run', str(rel / "install.sh")]
+
+    def dry_run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(cmd, env=env, cwd=tmp_path, capture_output=True, text=True,
+                              timeout=60)
+
+    runs = [dry_run() for _ in range(2)]
     assert [r.returncode for r in runs] == [0, 0], runs[0].stderr
     assert runs[0].stdout == runs[1].stdout
     out = runs[0].stdout
@@ -315,8 +323,7 @@ def test_install_sh_dry_run(tmp_path):  # FR-1.8 acceptance, on a faked Linux x8
     assert list(home.rglob("*")) == []
 
     (rel / "requirements.txt").write_text("tampered\n")
-    bad = subprocess.run(["sh", str(rel / "install.sh"), "--dry-run"], env=env,
-                         capture_output=True, text=True, timeout=60)
+    bad = dry_run()
     assert bad.returncode == 1 and "requirements.txt does not match its checksum" in bad.stderr
 
 

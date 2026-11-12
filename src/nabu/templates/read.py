@@ -34,6 +34,10 @@ from nabu.templates.link import find_in_lines, paginated
 log = logging.getLogger(__name__)
 
 LINE_GAP = 20  # grid units between words of one value on a line
+ONE_ANCHOR = ("This template found too little fixed text on the page, so it cannot tell how far "
+              "the photo is zoomed and the boxes may be on the wrong lines. Check every field. "
+              "To fix it, delete the template and save it again, keeping fixed text near the top "
+              "and the bottom of the form.")
 
 
 def _shift(box: Box, by: Box) -> Box:
@@ -154,7 +158,10 @@ def read_linked(reading: Reading, t: dict, cfg: Config, model: ModelClient | Non
                 pl, label_hits, printed_text = placed.get(page_n, (align.Placement(), {}, set()))
                 value, box, expected, printed = _read_paginated(page, a, tol, pl.fit,
                                                                 label_hits.get(i - 1), printed_text)
-                supported = not (label and a.get("box")) and pl.found > 0
+                supported = not (label and a.get("box")) and pl.found > 0 and pl.zoom_known
+                if not (label and a.get("box")) and pl.found > 0 and not pl.zoom_known \
+                        and ONE_ANCHOR not in messages:
+                    messages.append(ONE_ANCHOR)
             elif label:
                 for p in reading.pages:
                     found, value = find_in_lines(label, p)

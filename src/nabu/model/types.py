@@ -27,12 +27,13 @@ class PageImage:
 
 @dataclass(frozen=True)
 class DiscoveredField:
-    label: str = field(repr=False)
+    label: str = field(repr=False)  # the field's name: the printed label, or the model's name
     value: str | None = field(repr=False)
     value_type: ValueType
     box: Box | None  # converted per profile; None when the profile ignores model boxes
     raw_box: tuple[float, float, float, float] | None  # as the model wrote it (evaluation only)
     confidence: float
+    printed_label: str | None = field(default=None, repr=False)  # None: the value is printed alone
 
 
 @dataclass(frozen=True)

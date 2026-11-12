@@ -84,3 +84,30 @@
   marker (banner text) in the same call before trusting the result.
 - An Edit that "inserts above a heading" by replacing the heading line dropped the heading
   (M3.3). When inserting before an anchor, put the anchor back in new_string and diff after.
+
+## 2026-10-30 M6 trial, finding 1
+- A template with one landmark linked every PAN photo at 1.00 and misplaced 3 of 4 boxes on a
+  zoomed one. The score was found/total = 1/1, and every test template had 3 landmarks, so a
+  ratio that means nothing at n = 1 looked like certainty. When a score is a ratio, test it at
+  the smallest denominator real data can produce, and do not call a result confirmed when the
+  evidence cannot measure the thing that varies (zoom needs two anchors spread apart).
+- The earlier "it looks good" PAN retest ran with no model configured. Check what a run
+  actually used (doctor: configured_model) before treating it as coverage of the model path.
+
+## 2026-10-30 M6 trial, finding 2
+- The discovery prompt was only ever run against stub answers, so its wording was never tested:
+  the real model (thinking off) stopped after one field and could not express a label-less
+  value. A prompt is code that only the real model executes. Probe each prompt change against
+  the real model on synthetic pages of every layout the product claims (labels inline, above,
+  none), more than one run each, before trusting stub tests.
+- A model writes "null" as a string where JSON null was asked. Normalise words for "nothing"
+  at every free-text field the model fills.
+
+## 2026-11-06 install test "flaky in the full run"
+- test_install_sh_dry_run failed in two full runs and passed alone, so I called it
+  order-dependent and bisected test files for 20 minutes. The real variable was the shell:
+  full runs were started from PowerShell, single runs from Git Bash, and Git\bin\sh.exe
+  rewrites PATH. When a test passes "alone" and fails "together", first rerun both ways from
+  the SAME shell before bisecting.
+- Comparing against HEAD in a git worktree used the venv's editable install, so HEAD's tests
+  ran against the modified src. Set PYTHONPATH=<worktree>/src and print `nabu.__file__` first.

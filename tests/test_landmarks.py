@@ -75,7 +75,9 @@ def test_label_less_card_links_and_reads(client, store, nabu_home):  # noqa: F81
     doc_id, d = open_doc(client, card(CARD2), "pan2.pdf")
     assert d["link"]["outcome"] == "linked" and d["link"]["template_id"] == tid
     assert values_of(d) == dict(zip(NAMES, CARD2, strict=True))
-    assert not any("needs_review" in f["status"] for f in d["fields"])
+    # The two kept lines are too close to measure zoom, so the values are read but not
+    # confirmed (M6 finding 1); with "Signature" kept they are (next tests).
+    assert all("needs_review" in f["status"] for f in d["fields"])
     close(client, doc_id)
 
 
@@ -86,6 +88,29 @@ def test_card_framed_differently_still_reads(client, store):  # noqa: F811  (pho
     doc_id, d = open_doc(client, card(CARD2, dx=25, dy=-30, s=0.92), "pan3.pdf")
     assert d["link"]["outcome"] == "linked"
     assert values_of(d) == dict(zip(NAMES, CARD2, strict=True))
+    close(client, doc_id)
+
+
+def test_card_framed_differently_with_spread_landmarks_needs_no_review(client, store):  # noqa: F811
+    learn_card(client, excluded=())
+    doc_id, d = open_doc(client, card(CARD2, dx=25, dy=-30, s=0.92), "pan3.pdf")
+    assert not any("needs_review" in f["status"] for f in d["fields"])
+    assert not any(ONE_ANCHOR in m for m in d["messages"])
+    close(client, doc_id)
+
+
+ONE_ANCHOR = "cannot tell how far"
+
+
+def test_one_landmark_template_flags_values_on_a_zoomed_card(client, store):  # noqa: F811
+    # M6 finding 1 (owner, 2026-10-30): a template with one landmark linked a zoomed PAN photo
+    # at 1.00 and put 3 of 4 boxes on the wrong lines. One anchor gives a shift, never a zoom,
+    # so the values it places are not confirmed and the window says why.
+    learn_card(client, excluded=(STATIC[2], "Signature"))
+    doc_id, d = open_doc(client, card(CARD2, dx=25, dy=-30, s=0.8), "pan4.pdf")
+    assert d["link"]["outcome"] == "linked"
+    assert all("needs_review" in f["status"] for f in d["fields"])
+    assert sum(ONE_ANCHOR in m for m in d["messages"]) == 1
     close(client, doc_id)
 
 
@@ -255,6 +280,19 @@ def test_fit_across_page_shapes():
     moved = [(a.text, want.box(a.box)) for a in anchors]
     pl = align.place(anchors, page_of(moved, 842, 601), Config().anchor_tolerance, aspect=0.7)
     assert pl.found == 3 and abs(pl.fit.s - 0.9) < 0.01
+
+
+def test_zoom_known_needs_two_anchors_spread_apart():  # M6 finding 1 (2026-10-30)
+    spread = [align.Anchor("AAAAAA", (100, 100, 200, 120), None),
+              align.Anchor("BBBBBB", (600, 100, 700, 120), None),
+              align.Anchor("CCCCCC", (100, 700, 200, 720), None)]
+    close_pair = [align.Anchor("AAAAAA", (100, 100, 200, 120), None),
+                  align.Anchor("BBBBBB", (100, 130, 200, 150), None)]
+    tol = Config().anchor_tolerance
+    for anchors, known in ((spread, True), (spread[:1], False), (close_pair, False)):
+        moved = [(a.text, align.Fit(0.9, 40, -20).box(a.box)) for a in anchors]
+        pl = align.place(anchors, page_of(moved), tol)
+        assert pl.found == len(anchors) and pl.zoom_known is known, (len(anchors), known)
 
 
 def test_fit_refuses_a_different_layout():

@@ -72,6 +72,9 @@ class Placement:
     total: int = 0  # anchors of the template on this page
     found: int = 0  # anchors found where the fit puts them
     hits: dict[int, tuple[Box, int, int]] = field(default_factory=dict)  # anchor index -> match
+    # Two or more anchors found far enough apart to measure zoom. One anchor gives a shift only,
+    # so on a photo taken closer or further away the boxes land on other lines (M6 finding 1).
+    zoom_known: bool = False
 
 
 @dataclass(frozen=True)
@@ -106,10 +109,9 @@ def fit(pairs: list[tuple[Box, Box]]) -> Fit:
     dst = [_centre(b) for _, b in pairs]
     if len(pairs) == 1:
         return Fit(1.0, dst[0][0] - src[0][0], dst[0][1] - src[0][1])
-    mx, my = sum(p[0] for p in src) / len(src), sum(p[1] for p in src) / len(src)
-    nx, ny = sum(p[0] for p in dst) / len(dst), sum(p[1] for p in dst) / len(dst)
+    (mx, my), (nx, ny) = _mean(src), _mean(dst)
     den = sum((x - mx) ** 2 + (y - my) ** 2 for x, y in src)
-    if den < 50 ** 2:  # anchors too close together to tell zoom from shift
+    if not _spread(src):
         s = 1.0
     else:
         num = sum((x - mx) * (u - nx) + (y - my) * (v - ny)
@@ -168,7 +170,16 @@ def place(items: list[Anchor], page: Page, tol: float, aspect: float | None = No
         if moved(refined) <= MAX_MOVE and len(agree(refined)) >= len(best_in):
             best, best_in = refined, agree(refined)
     hits = {i: found[i] for i in best_in}
-    return Placement(on(best), len(items), len(hits), hits)
+    known = _spread([_centre(tb) for i, (tb, _) in pairs if i in best_in])
+    return Placement(on(best), len(items), len(hits), hits, known)
+
+
+def _spread(points: list[tuple[float, float]]) -> bool:
+    """Anchors far enough apart to tell zoom from shift (page units)."""
+    if len(points) < 2:
+        return False
+    mx, my = _mean(points)
+    return sum((x - mx) ** 2 + (y - my) ** 2 for x, y in points) >= 50 ** 2
 
 
 def _mean(points: list[tuple[float, float]]) -> tuple[float, float]:

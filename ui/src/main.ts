@@ -783,8 +783,10 @@ function uncheckedLandmarks(): string[] {
 function syncUnlinkable(): void {
   const choice = saveChoice();
   const kept = document.querySelectorAll("#save-landmarks input[data-landmark]:checked").length;
-  $("save-unlinkable").hidden =
-    !(choice === "new" || choice === "update") || (saveSummary?.labels ?? []).length > 0 || kept > 0;
+  const anchors = (saveSummary?.labels ?? []).length + kept;
+  const writes = choice === "new" || choice === "update";
+  $("save-unlinkable").hidden = !writes || anchors > 0;
+  $("save-onezoom").hidden = !writes || anchors !== 1; // zoom needs two (M6 finding 1)
 }
 
 function renderChanges(s: VerifySummary): void {

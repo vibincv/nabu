@@ -142,7 +142,7 @@ def _from_pair(p: rules.Pair, page: Page) -> Field:
 
 
 def _from_model(p: model_discovery.ModelPair, cfg: Config) -> Field:
-    f = Field(id="", name=p.label, printed_label=p.label, value=p.value,
+    f = Field(id="", name=p.label, printed_label=p.printed_label, value=p.value,
               value_type=p.value_type, page=p.page, source="model", confidence=p.confidence,
               box=p.box, box_source=p.box_source, status=["suggested"])  # type: ignore[arg-type]
     if p.value is None or not p.exact or p.confidence < cfg.review_confidence:

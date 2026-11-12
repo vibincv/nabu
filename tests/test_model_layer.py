@@ -114,6 +114,18 @@ def test_tier_recommendation(ram, vram, model):
     assert recommend(ram, vram).model == model
 
 
+@pytest.mark.parametrize("guess", ["null", "None", " NULL ", "unknown", ""])
+def test_type_guess_written_as_a_word_for_nothing_is_none(guess):
+    # M6 finding 2: with the new prompt qwen3.5:9b answered type_guess "null" as a string,
+    # which would have pre-filled the document type box with "null".
+    with StubOllama() as stub:
+        stub.responses.append(discovery(type_guess=guess))
+        c = client(stub)
+        d = c.discover_page(png(), "")
+        c.close()
+    assert d.type_guess is None
+
+
 # ---- client against both runtimes -------------------------------------------------------
 @pytest.mark.parametrize("runtime", ["ollama", "openai_compat"])
 def test_discover_page_on_both_runtimes(runtime):

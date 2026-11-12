@@ -19,6 +19,95 @@ task 0 is approved.
 - Not counted: accepting a "suggested" field with one click (no edit flag), and an edit to a
   field that was later removed. Wrong boxes are not visible in counts; note them by hand.
 
+## Finding 1 (2026-10-30): one-landmark template misplaces fields on a zoomed photo (approved fix 1+2)
+PAN card, nabu-m6: v1 saved with 1 landmark (the old nabu-test one had 3). Docs 2 and 3 linked
+at 1.00, but 3 of 4 boxes were on the wrong lines (metrics: removed=3 added=3).
+- Root cause: align.fit with one anchor returns scale 1.0 (shift only), and link score is
+  found/total = 1/1. Doc 2 was about 1.57x zoomed (v1 vs v2 box spacing 122 -> 191 grid units).
+  Update keeps only landmarks seen again, so the template can never gain a second one.
+- Not confirmed: why v1 got one landmark. Likely the removed model field's box covered the
+  other lines (removed fields block landmarks, write.py:164).
+- [x] align.Placement.zoom_known: at least 2 agreeing anchors, spread enough to measure zoom
+      (the same 50-unit rule fit() uses, now one helper `_spread`).
+- [x] read.py: a label-less value counts as confirmed only when zoom is known; otherwise
+      needs_review, plus one message (ONE_ANCHOR) saying why and how to fix it.
+- [x] Save dialog: a second warning when labels + kept landmarks == 1. Count-based: two kept
+      lines too close together get no dialog warning, only the read-time message.
+- [x] Tests (test_landmarks.py +3): unit (1 anchor, 2 close, 3 spread); one-landmark template +
+      zoomed card -> linked, all needs review, message once (failed before the fix); spread
+      landmarks + zoomed card -> no review, no message.
+- Changed: test_label_less_card_links_and_reads now expects needs_review. Its template keeps
+  only two top lines 40 pt apart, which could never measure zoom (already a documented limit).
+- Result: 406 passed, 4 skipped; ruff, tsc clean; UI rebuilt. Not verified in a browser: the
+  new dialog warning and the message in the window.
+- Owner retest (2026-10-30 09:12-09:15, nabu-m6, template deleted first): re-saved PAN template
+  has 3 landmarks (y 360, 571, 716); the next PAN card linked at 1.00 and kept all 4 template
+  fields with 0 edits, 0 removed, 0 needs review. This time no field was removed before saving,
+  which supports (not proves) the removed-field explanation for the old single landmark.
+- Not in scope: estimating zoom from one landmark's size (fix 3, optional).
+
+## Finding 2 (2026-10-30): model discovery finds nothing usable on a PAN card - root cause found
+- Two first reads with no template, qwen3.5:9b: 45.2 s, 1 field (removed by the owner), and
+  46.2 s, 0 fields kept from the model (all 4 drawn by hand). Metrics lines in nabu-m6 log.
+- Probe (scratchpad f2_*.py; synthetic PAN-style cards as PNG, real OCR + qwen3.5:9b, no
+  owner documents). The answers were valid JSON every time; no field was lost to parsing.
+  | layout                  | as sent today          | thinking on        | new prompt+schema |
+  | no labels (PAN)         | 7 echoes label==value, | 7 echoes, 90 s     | 4/4 fields, 3     |
+  |                         | all dropped -> 0       |                    | fixed_text, 25 s  |
+  | "Label: value" per line | 1/4 (3/3 runs), 3.8 s  | 4/4 but 65 s       | 4/4 + 3 fixed     |
+  | small label above value | 4/4 + headings         |                    | 4/4 + 3 fixed     |
+  New prompt: 6/6 runs identical and correct, thinking off.
+- Root cause: the prompt asks only for "printed label and its value". (1) A label-less value
+  has no answer but an echo, which prompt.py:57 rightly drops. (2) With thinking off,
+  qwen3.5:9b stops after the first field. (3) Headings are returned as values, so they are
+  registered with the session (AR-7) and can never become landmarks: this is the likely
+  cause of finding 1's single landmark.
+- Side finding (not in this fix): qwen3.5 returns boxes on a 0-1000 grid, but the profile reads
+  them as pixels, so boxes past the image edge become None. Grounding on OCR hides it.
+
+### Fix (owner go 2026-10-30) - done, awaiting owner check
+- [x] Discovery prompt (client._DISCOVERY_SYSTEM): list every field in reading order; a value
+      with no printed label is still a field (printed_label null, name = short English name);
+      fixed printed text is listed as kind fixed_text with value null.
+- [x] Schema per field: kind (field | fixed_text), name, printed_label (nullable), value,
+      value_type, bbox, confidence. An answer in the earlier shape (`label`) still parses.
+- [x] Parsing: fixed_text items are dropped in client.discover_page, before any value is
+      registered, so the text can become a landmark. A printed_label equal to the value counts
+      as no label (prompt.py). The echo rule stays.
+      Privacy: a value the model wrongly calls fixed_text is unregistered, which is the same as
+      the model missing it today; the save dialog still lists every landmark with an opt-out.
+- [x] Field: printed_label = the printed label or None. Name: unchanged rule (FR-9), the printed
+      label (translated) names the field; the model's name is used only without one.
+- [x] Found while verifying: the model wrote type_guess "null" as a string, which would have
+      pre-filled the document type with "null". "null", "none", "unknown", "n/a" -> None.
+- [x] Tests: test_pipeline (fixed_text dropped and unregistered, printed == value -> None,
+      label-less kept); test_model_layer (type_guess words, 5 cases). Both failed first.
+      412 passed, 4 skipped; ruff clean.
+- [x] Real model through Nabu's code (f2_probe.py, synthetic cards): 4/4 fields in the window on
+      all three layouts, no headings, boxes on the values, 26-38 s.
+- Known: on the label-less card the model swapped "Name" and "Father's Name" in one of two
+  runs (it names by position). The owner renames once; the template keeps the names.
+- [ ] Owner check: a PAN card first read in nabu-m6 (the PAN template from 09:12 must be
+      deleted first, or it links and the model is not asked).
+- Not in scope: qwen3.5 box coordinates (grid_1000 read as pixels), the next change.
+- Synthetic US licence probe (2026-11-06; scratchpad nycdl/make_dl.py + probe.py, review API,
+  real OCR + qwen3.5:9b, fresh NABU_HOME). Made-up issuer "SAMPLE STATE" with SPECIMEN stamp,
+  NYC holder addresses; 12 fields, 4 printed with no label (name x2, address x2).
+  - First read, no template: 12/12 values in 3/3 runs (55-66 s); label-less ones kept with
+    printed_label None; headings not returned as values; save kept 5 landmarks.
+  - Template saved; same card for another holder at 1.25x and 0.8x zoom: linked 1.00, 12/12
+    values, 6-8 s. One field (CLASS, a single letter) went to model re-read + needs_review once.
+  - Seen: the model names label-less fields in snake_case (last_name, address_line_1). The user
+    renames once; worth a prompt word ("in plain words, e.g. Last name") if it bothers the demo.
+  - This is not the owner check above: a real PAN photo is still open.
+
+## Fix (2026-11-06): test_install_sh_dry_run failed when pytest ran from PowerShell
+- Cause: from PowerShell, `sh` is Git's launcher (Git\bin\sh.exe), which puts its /usr/bin
+  ahead of the inherited PATH, so the real uname (MINGW64_NT) beat the test's uname shim.
+  From Git Bash, `sh` is usr\bin\sh.exe and the shim won. Not order-dependent, not from M6.
+- [x] The test now prepends the shim inside the shell (`PATH="$PWD/shim:$PATH" exec sh ...`,
+      cwd = tmp_path). Passes from PowerShell and Git Bash. CI (Linux, macOS) not run here.
+
 ## 1. Document set (15-20, owner collects)
 Each type at least twice, so the second copy tests linking.
 - [ ] ID: PAN x3 (different photos), Aadhaar x2, driving licence x2, passport x2.

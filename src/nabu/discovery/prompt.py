@@ -22,7 +22,8 @@ COULD_NOT_READ = "could not read fields on this page: the model's answer was not
 
 @dataclass
 class ModelPair:
-    label: str = field(repr=False)
+    label: str = field(repr=False)  # the field's name
+    printed_label: str | None = field(repr=False)  # None: the value is printed with no label
     value: str | None = field(repr=False)
     value_type: ValueType
     page: int
@@ -48,12 +49,19 @@ def discover_page(client: ModelClient, page: Page) -> PageResult:
         return PageResult(pairs=[], message=COULD_NOT_READ)
     pairs = []
     for f in d.fields:
-        label = f.label.strip().rstrip(":：").strip()  # "Datum:" is the label "Datum"
+        label = _bare(f.label)  # "Datum:" is the label "Datum"
+        printed = _bare(f.printed_label or "") or None
         value = (f.value or "").strip() or None
         if value is not None and compact(value) == compact(label):
             continue  # a title or heading echoed as label and value is not a field
+        if value is not None and printed is not None and compact(value) == compact(printed):
+            printed = None  # the value given as its own label: it is printed alone
         g = ground(value, page, f.box)
-        pairs.append(ModelPair(label=label, value=value, value_type=f.value_type, page=page.n,
-                               box=g.box, box_source=g.box_source, confidence=f.confidence,
-                               exact=g.exact))
+        pairs.append(ModelPair(label=label, printed_label=printed, value=value,
+                               value_type=f.value_type, page=page.n, box=g.box,
+                               box_source=g.box_source, confidence=f.confidence, exact=g.exact))
     return PageResult(pairs=pairs, type_guess=d.type_guess, country_guess=d.country_guess)
+
+
+def _bare(label: str) -> str:
+    return label.strip().rstrip(":：").strip()
