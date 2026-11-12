@@ -1,3 +1,88 @@
+# Beta for the team: one start script (2026-11-12) - done on Windows; macOS + clean-laptop Ollama check open
+
+Goal: a teammate on Windows or macOS clones the repo, runs one script, and Nabu opens. The
+script checks the machine, installs Nabu if needed, makes sure Ollama runs and the model is
+there (installing or pulling after one y/N with sizes), then opens the review window. Every
+later run skips straight to "start Ollama if needed, open Nabu".
+
+Owner decisions (2026-11-12): Windows + macOS; delivery = git clone; ask once before
+downloads; model path verified here, Ollama install path verified by the owner on a clean laptop.
+
+Found while reviewing (README, install/*, src/nabu/install):
+- The installer already does detect -> Ollama -> model + digest -> shortcut -> test read. It
+  ends with "open it from the shortcut" and does not start Nabu.
+- macOS bug (verified 2026-11-12): the pinned ollama-darwin.tgz holds a bare `ollama` binary +
+  58 libs, not Ollama.app. plan.py unpacks it loose into ~/Applications, and runtime_program()
+  looks for ~/Applications/Ollama.app/... -> Ollama never found, never started.
+- After a reboot nothing starts Ollama on macOS (tarball install); the shortcut does not either.
+- `nabu` is not on PATH after an install (private venv), yet README and installer messages tell
+  users to run `nabu ...`.
+- dist/release is from 2026-10-14 (stale); with git-clone delivery it is built on the teammate's
+  machine instead.
+- Model digests pinned 2026-10-14; a re-tagged model would download, mismatch and be deleted.
+
+## 1. Start scripts (repo root)
+- [ ] `start-nabu.ps1` (Windows) and `start-nabu.sh` (macOS; Linux kept working but untested).
+      Steps: (a) system check: 64-bit, OS, RAM, free disk, print what was found; stop with a
+      plain message if unsupported. (b) Not installed, or repo has a newer commit than the
+      installed wheel -> build the release from the clone (pinned uv, UI build) and run the
+      existing install script. (c) Installed -> `nabu.app` (start Ollama if needed, open window).
+- [ ] Build from a clone needs the UI built (Node) -> see open question Q1.
+
+## 2. Installer fixes
+- [ ] macOS: unpack Ollama into Nabu's own folder (`~/Library/Application Support/Nabu App/ollama`),
+      and look for it there; test with the real archive's file list.
+- [ ] Finish by opening Nabu (not only "open it from the shortcut"), unless `--no-launch`.
+- [ ] `nabu.app` (shortcut + start script): if Ollama is installed but not answering, start it
+      and wait up to 60 s; if it still does not answer, open Nabu anyway (no-model reads + a
+      message), never hang.
+- [ ] Messages that say `nabu ...` print the full path of the installed program instead.
+
+## 3. Model handling (verified here)
+- [ ] Check the pinned digests of qwen3.5 0.8b/2b/4b/9b/27b against the registry today.
+- [ ] Real pull through a second Ollama server (own port, temp OLLAMA_MODELS) with the smallest
+      model: download, digest match, config written, sample read, then re-run downloads nothing.
+- [ ] Mismatch path for real: a wrong pin -> model removed, no-model mode, clear message.
+- [ ] Declined download -> no-model mode, Nabu still opens.
+
+## 4. README
+- [ ] New top section "Try the beta": prerequisites (OS, RAM, disk, first-run download sizes and
+      time), clone + one command per OS, what the script asks, how to open it later, where
+      things are, uninstall (Nabu folder, shortcut, store; Ollama and models are separate).
+- [ ] Troubleshooting: Ollama not answering, digest mismatch, proxy, no GPU (slow), Korean pack.
+
+## 5. Verification
+- [ ] Tests for the new behaviour (macOS unpack target + lookup, launch step, runtime start in
+      nabu.app); full suite, ruff, tsc.
+- [ ] Windows end to end from a fresh clone in temp LOCALAPPDATA/APPDATA/NABU_HOME (Ollama
+      present here, so the Ollama-install step is the owner's clean-laptop check).
+- [ ] macOS: not testable here; needs a teammate's Mac run (owner).
+
+## Review (2026-11-12)
+- Owner answers: Node required (script checks), rebuild when the clone changes.
+- Built: start-nabu.ps1 / start-nabu.sh (repo root); install.ps1 -UvOnly / install.sh --uv-only;
+  `python -m nabu.install --check` (exit 3 = run setup); nabu.app starts a stopped Ollama (20 s
+  max, never blocks); macOS Ollama unpacked to "Nabu App/ollama" and found there; .gitattributes
+  keeps *.sh LF; README "Try the beta (team)". Installer launch step dropped: the script opens Nabu.
+- Bugs found only by running: `PS` is a PowerShell alias of Get-Process (helper never ran);
+  interactive children now run via Start-Process -NoNewWindow so y/N prompts are not held in a pipe.
+- Model, real Ollama (second server :11500, empty model folder): declined -> no-model mode and
+  check passes; pull qwen3.5:0.8b 15 min (slow line), digest match, timed 9 s, sample read;
+  re-run downloads nothing; wrong pin -> model deleted, check exit 3. All 5 pins match the
+  registry today.
+- Windows e2e from this clone (temp LOCALAPPDATA/APPDATA/NABU_HOME, existing Ollama): first start
+  231 s exit 0; second start 4 s, no rebuild.
+- 419 passed, 4 skipped; ruff, tsc clean.
+- Not verified: Ollama install on a clean machine (owner's laptop); macOS at all; whether the y/N
+  prompt is visible in a real console (this shell has no TTY); the browser actually opening from
+  the script (M4 verified the shortcut path).
+- Open: repo URL for the README (no git remote set).
+- Finding 3 (2026-11-12, deck screenshots, no-model mode): a template made only of hand-drawn
+  fields linked the next card (1.25x closer) and placed all 5 fields, but 2 values came back
+  with their printed label ("ID: ...", "DOB: ..."). Drawn fields store no printed_label, so the
+  label-word skip in template read never applies to them. Without a model every value also gets
+  a "not translated" chip. Not fixed; owner to rank.
+
 # M6 Real-document trial (2026-10-30) - decisions made; task 0 approved
 
 Goal: find where Nabu fails on documents users will bring, before planning release work. Every

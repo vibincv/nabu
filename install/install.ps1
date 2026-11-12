@@ -20,7 +20,8 @@ param(
   [switch]$DryRun,     # print every detection and command, change nothing (FR-1.8)
   [switch]$Yes,        # answer yes to every download question
   [string]$Model = "auto",  # a model name, or "none" for no-model mode
-  [switch]$NoShortcut
+  [switch]$NoShortcut,
+  [switch]$UvOnly      # only make sure the pinned uv is in place (used by start-nabu.ps1)
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -52,6 +53,7 @@ if ([Environment]::Is64BitOperatingSystem -eq $false -or $env:PROCESSOR_ARCHITEC
 }
 
 # 1. Release files (FR-1.12)
+if (-not $UvOnly) {
 $sums = Join-Path $Here "SHA256SUMS"
 if (-not (Test-Path $sums)) { Fail "SHA256SUMS is missing next to install.ps1" }
 $wheel = $null
@@ -67,6 +69,7 @@ foreach ($line in Get-Content $sums) {
 if (-not $wheel) { Fail "no nabu wheel listed in SHA256SUMS" }
 $req = Join-Path $Here "requirements.txt"
 Say "Release files checked against SHA256SUMS."
+}
 
 # 2. uv
 $haveUv = (Test-Path $Uv) -and ((& $Uv --version 2>$null) -match [regex]::Escape($UvVersion))
@@ -87,6 +90,7 @@ if ($haveUv) {
   Remove-Item $zip -Force
   Say "uv $UvVersion installed: $Uv"
 }
+if ($UvOnly) { exit 0 }
 
 # 3. Nabu's own Python environment
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $Root "python"
@@ -122,5 +126,6 @@ if ($DryRun) { $argv += "--dry-run" }
 if ($Yes) { $argv += "--yes" }
 if ($NoShortcut) { $argv += "--no-shortcut" }
 Say ""
-& $Py @argv
-exit $LASTEXITCODE
+# Attached to this console, not through a PowerShell pipe, so the y/N questions show.
+$p = Start-Process -FilePath $Py -ArgumentList ($argv -join " ") -NoNewWindow -Wait -PassThru
+exit $p.ExitCode

@@ -54,13 +54,27 @@ def main() -> int:
     from nabu.store.paths import default_paths
 
     try:
-        port = running_port(load_config(default_paths().config_file).ui_port)
+        cfg = load_config(default_paths().config_file)
+        port = running_port(cfg.ui_port)
     except Exception:  # a bad config is reported by `serve` below
-        port = None
+        cfg, port = None, None
     if port is not None:
         webbrowser.open(f"http://127.0.0.1:{port}/")
         return 0
+    if cfg is not None and cfg.model is not None and cfg.model_runtime == "ollama":
+        _start_runtime(cfg)
     return cli_main(["serve"])
+
+
+def _start_runtime(cfg) -> None:  # type: ignore[no-untyped-def]
+    """Start a stopped Ollama (after a reboot nothing restarts a tarball install). Waits at most
+    20 s; if it still does not answer, the window opens anyway and says so on the first read."""
+    import contextlib
+
+    from nabu.install.__main__ import ensure_runtime
+
+    with contextlib.suppress(Exception):  # never block opening the window
+        ensure_runtime(cfg, 20.0)
 
 
 if __name__ == "__main__":

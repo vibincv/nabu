@@ -10,19 +10,21 @@
 #      test read), which asks before every download.
 # Running it again changes nothing already in place and downloads nothing.
 #
-# usage: sh install.sh [--dry-run] [--yes] [--model NAME|none] [--no-shortcut]
+# usage: sh install.sh [--dry-run] [--yes] [--model NAME|none] [--no-shortcut] [--uv-only]
 set -eu
 
 UV_VERSION=0.12.19
 PYTHON_VERSION=3.12
 
 DRY_RUN=0
+UV_ONLY=0
 PASS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1; PASS="$PASS --dry-run" ;;
     --yes) PASS="$PASS --yes" ;;
     --no-shortcut) PASS="$PASS --no-shortcut" ;;
+    --uv-only) UV_ONLY=1 ;;  # only make sure the pinned uv is in place (start-nabu.sh)
     --model) shift; PASS="$PASS --model $1" ;;
     -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "nabu install: unknown option $1" >&2; exit 2 ;;
@@ -65,6 +67,7 @@ PY="$APP/bin/python"
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 # 1. Release files (FR-1.12)
+if [ $UV_ONLY = 0 ]; then
 [ -f "$HERE/SHA256SUMS" ] || fail "SHA256SUMS is missing next to install.sh"
 WHEEL=""
 while read -r want name; do
@@ -78,6 +81,7 @@ done < "$HERE/SHA256SUMS"
 [ -n "$WHEEL" ] || fail "no nabu wheel listed in SHA256SUMS"
 REQ="$HERE/requirements.txt"
 say "Release files checked against SHA256SUMS."
+fi
 
 # 2. uv
 if [ -x "$UV" ] && "$UV" --version 2>/dev/null | grep -q "$UV_VERSION"; then
@@ -98,6 +102,7 @@ else
   rm -rf "$TMP"
   say "uv $UV_VERSION installed: $UV"
 fi
+[ $UV_ONLY = 0 ] || exit 0
 
 # 3. Nabu's own Python environment
 export UV_PYTHON_INSTALL_DIR="$ROOT/python"

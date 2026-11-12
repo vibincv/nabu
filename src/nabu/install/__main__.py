@@ -22,7 +22,7 @@ from pathlib import Path
 
 from nabu import netguard
 
-EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 2
+EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_SETUP = 0, 1, 2, 3
 
 
 def _out(s: str = "") -> None:
@@ -42,6 +42,9 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--langs", default=None,
                    help="OCR packs to offer, comma-separated (default: en,ko); 'none' for none")
     p.add_argument("--no-shortcut", action="store_true", help="do not add the Nabu shortcut")
+    p.add_argument("--check", action="store_true",
+                   help="quick launch check: start Ollama if it is stopped and confirm the set-up "
+                        "model is installed; exit 0 when ready, 3 when setup is needed")
     return p.parse_args(argv)
 
 
@@ -53,13 +56,17 @@ def runtime_program(system: str) -> str | None:
     found = shutil.which("ollama")
     if found:
         return found
+    from nabu.install.plan import mac_runtime_dir
+
+    app = Path("Ollama.app") / "Contents" / "Resources" / "ollama"
     candidates = {
-        "Windows": Path(os.environ.get("LOCALAPPDATA") or "") / "Programs" / "Ollama" / "ollama.exe",
-        "Darwin": Path.home() / "Applications" / "Ollama.app" / "Contents" / "Resources" / "ollama",
-        "Linux": Path.home() / ".local" / "bin" / "ollama",
+        "Windows": [Path(os.environ.get("LOCALAPPDATA") or "") / "Programs" / "Ollama" / "ollama.exe"],
+        # Nabu's own copy first, then the official app (system-wide or per user).
+        "Darwin": [mac_runtime_dir() / "ollama", Path("/Applications") / app,
+                   Path.home() / "Applications" / app],
+        "Linux": [Path.home() / ".local" / "bin" / "ollama"],
     }
-    c = candidates.get(system)
-    return str(c) if c and c.is_file() else None
+    return next((str(c) for c in candidates.get(system, []) if c.is_file()), None)
 
 
 def detect(cfg, paths):  # type: ignore[no-untyped-def]
@@ -136,6 +143,48 @@ def start_runtime(program: str) -> None:
     subprocess.Popen([program, "serve"], stdin=subprocess.DEVNULL,  # noqa: S603
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
                      start_new_session=sys.platform != "win32")
+
+
+def ensure_runtime(cfg, seconds: float = 60.0) -> bool:  # type: ignore[no-untyped-def]
+    """Ollama answers, starting an installed but stopped one first (nothing restarts a tarball
+    install after a reboot). False when it is not installed or does not answer in time."""
+    if wait_for_runtime(cfg, 1.0):
+        return True
+    program = runtime_program(platform.system())
+    if program is None:
+        return False
+    start_runtime(program)
+    return wait_for_runtime(cfg, seconds)
+
+
+def quick_check(cfg) -> int:  # type: ignore[no-untyped-def]
+    """`--check`, run by the start scripts on every launch: is the set-up model ready to use?
+    0 = ready (or no-model mode was chosen), EXIT_SETUP = run the full installer."""
+    from nabu.errors import ModelUnavailable
+    from nabu.model.ollama import OllamaRuntime
+    from nabu.model.runtime import same_model
+
+    if cfg.model is None:
+        _out("No model is set up: Nabu runs in no-model mode (digital files and templates only). "
+             "To add one, run the start script with --setup.")
+        return EXIT_OK
+    if cfg.model_runtime != "ollama":
+        return EXIT_OK  # another runtime is the user's own; not ours to start or check
+    if not ensure_runtime(cfg):
+        _out(f"Ollama does not answer at {cfg.model_endpoint}.")
+        return EXIT_SETUP
+    rt = OllamaRuntime(cfg, 10.0)
+    try:
+        installed = rt.digests()
+    except ModelUnavailable:
+        installed = {}
+    finally:
+        rt.close()
+    if not any(same_model(m, cfg.model) for m in installed):
+        _out(f"Model {cfg.model} is not installed in Ollama.")
+        return EXIT_SETUP
+    _out(f"Ollama answers; model {cfg.model} is installed.")
+    return EXIT_OK
 
 
 MANUAL = ("Install Ollama yourself from https://ollama.com/download, start it, then run this "
@@ -277,6 +326,8 @@ def main(argv: list[str] | None = None) -> int:
     paths = default_paths()
     try:
         cfg = load_config(paths.config_file)
+        if args.check:
+            return quick_check(cfg)
         choices = Choices(
             model=None if args.model == "none" else args.model,
             langs=None if args.langs is None else tuple(

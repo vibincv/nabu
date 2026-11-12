@@ -8,6 +8,121 @@ Nabu reads documents on your own machine. You check every field it finds and cor
 
 The source of truth is the FRD: *Nabu — Functional Requirements Document v1.1*. Requirement IDs in the code (FR-x, AR-x, DD-x, API-x) refer to it.
 
+## Try the beta (team)
+
+One script checks your machine, installs Nabu, makes sure Ollama (the local model runtime) and a model are ready, and opens Nabu. Run the same script every time you want to use Nabu.
+
+### What you need
+
+| | Windows | macOS |
+|---|---|---|
+| System | Windows 10 or 11, 64-bit, Intel or AMD processor (not Windows on ARM) | Apple silicon or Intel Mac |
+| Tools | [git](https://git-scm.com/downloads) and [Node.js](https://nodejs.org) 20 or newer (LTS). Node only builds Nabu's window; Nabu does not need it to run | same |
+| Internet | Only for the first setup and for updates. Reading documents never uses the network | same |
+| Admin rights | Not needed. Everything installs for your user only | same |
+
+Python is not needed: the script fetches its own copy.
+
+**Disk and download.** Nabu itself takes about 0.4 GB. If Ollama is not installed yet, it is downloaded too: 1.6 GB on Windows, 0.17 GB on macOS. The model depends on your machine's memory:
+
+| Your machine | Model | Download |
+|---|---|---|
+| under 8 GB memory | none offered by default (no-model mode; `qwen3.5:0.8b` can be added) | — |
+| 8–15 GB memory | `qwen3.5:2b` | 2.7 GB |
+| 16–31 GB memory | `qwen3.5:4b` | 3.3 GB |
+| 32 GB memory or more, or 16 GB with an NVIDIA GPU of 6 GB or more | `qwen3.5:9b` | 6.6 GB |
+| NVIDIA GPU with 16 GB or more | `qwen3.5:27b` | 17.5 GB |
+
+Only NVIDIA GPUs are detected. On a Mac, the model is chosen by memory alone. The installer shows the exact sizes and your free disk, and asks once before it downloads anything. Keep the download size plus 2 GB free.
+
+### First start
+
+```powershell
+# Windows (PowerShell)
+git clone <repo URL> nabu
+cd nabu
+powershell -ExecutionPolicy Bypass -File start-nabu.ps1
+```
+
+```bash
+# macOS (Terminal)
+git clone <repo URL> nabu
+cd nabu
+sh start-nabu.sh
+```
+
+The script:
+
+1. Checks the machine (system, memory, free disk) and stops with a plain message if something is missing.
+2. Builds Nabu's window (`npm ci`, `npm run build`) and a release from your clone, then runs the installer. The installer:
+   - reuses Ollama if it is installed, or offers to install a pinned, checksum-checked Ollama for your user;
+   - picks the model for your machine and asks **once** before downloading Ollama and the model, showing sizes and free disk;
+   - checks the downloaded model against the digest pinned in Nabu, and deletes it if they differ;
+   - times the model on a synthetic sample, adds a **Nabu** shortcut, and reads a bundled synthetic sample to prove everything works.
+3. Opens the review window in your browser.
+
+The first start takes a few minutes plus the download. At 10 MB/s, the 6.6 GB model takes about 11 minutes.
+
+If you answer **no** to the download, Nabu still installs and opens in no-model mode. Digital files (PDFs with text, office files) and saved templates still work; photos and scans of a kind of document with no template yet, and translation, need a model. To add the model later, run the script with `-Setup` (Windows) or `--setup` (macOS).
+
+### Every later start
+
+Run the same command, or use the **Nabu** shortcut (Start menu on Windows, Applications on macOS). Both start Ollama if it is stopped, for example after a reboot. The script also checks that the model is still installed and offers to download it again if it is not. Stop Nabu with **Quit Nabu** in the window, or Ctrl+C in the terminal.
+
+### Getting updates
+
+```bash
+git pull
+```
+
+Then start Nabu with the script as usual. It notices that the code changed and reinstalls Nabu before it opens. This takes a minute or two and downloads no model. The shortcut does not update Nabu; only the script does.
+
+### Options
+
+| Windows | macOS | What it does |
+|---|---|---|
+| `-Setup` | `--setup` | Run the Ollama and model setup again, e.g. to add a model after answering no |
+| `-Model qwen3.5:4b` | `--model qwen3.5:4b` | Use this model instead of the recommended one (`none` for no-model mode) |
+| `-Reinstall` | `--reinstall` | Rebuild and reinstall Nabu even if the code did not change |
+| `-NoLaunch` | `--no-launch` | Set everything up, but don't open Nabu |
+
+### Where things go
+
+| | Windows | macOS |
+|---|---|---|
+| Nabu (program) | `%LOCALAPPDATA%\Nabu` | `~/Library/Application Support/Nabu App` (also holds Nabu's own Ollama, if it installed one) |
+| Settings and templates (never document values) | `nabu doctor` shows the folder | same |
+| Log | `logs\nabu.log` in the settings folder (no document values) | same |
+| Ollama | `%LOCALAPPDATA%\Programs\Ollama` (if Nabu installed it) | see above |
+| Models | `%USERPROFILE%\.ollama\models` | `~/.ollama/models` |
+
+The `nabu` command is not added to your PATH. To run it, use its full path: `%LOCALAPPDATA%\Nabu\app\Scripts\nabu.exe doctor` on Windows, or `~/Library/Application\ Support/Nabu\ App/app/bin/nabu doctor` on macOS.
+
+### Remove Nabu
+
+1. Run `nabu forget --all` (full path above) to delete templates and learned data.
+2. Delete the Nabu program folder and the **Nabu** shortcut.
+3. Ollama and its models are separate programs and other tools may use them. To remove them too: on Windows, uninstall Ollama from Settings > Apps and delete `%USERPROFILE%\.ollama`; on macOS, delete `~/.ollama`.
+
+### If something goes wrong
+
+| What you see | What to do |
+|---|---|
+| `Node.js 20 or newer is needed` | Install the LTS version from nodejs.org, open a **new** terminal, run the script again |
+| `Ollama does not answer` | Start the Ollama app yourself, wait a few seconds, and run the script again. If Ollama is not installed, the script offers to install it |
+| `does not match the digest shipped with Nabu; it was removed` | The model online changed since this Nabu version pinned it. Tell the Nabu owner; meanwhile Nabu works in no-model mode |
+| `npm ci` or a download fails behind a company network or VPN | Run the first setup on another network, then go back. Proxy setups are not tested yet; report what you saw. Nabu never uses the network while reading |
+| Reads are slow (a minute or more per page) | Expected on a machine without an NVIDIA GPU. Templates make later copies of the same form fast |
+| Korean text is not read | Run `nabu langs pull ko` (full path above) |
+| PowerShell says running scripts is disabled | Start it as shown, with `powershell -ExecutionPolicy Bypass -File start-nabu.ps1` |
+
+When you report a problem, send the terminal output and `nabu doctor --json`. **Never send document images or values.** Notes like "the date field took the name line" are enough.
+
+### Beta limits
+
+- Windows is tested end to end. **macOS is not tested yet**: the first teammate on a Mac, please report how the first start went. Linux uses `start-nabu.sh` too but is untested.
+- Ollama's own installer step on a machine without Ollama is being checked on a clean laptop.
+
 ## Install (users)
 
 Build a release folder (developers: see below). Then, on the user's machine, run one of these from that folder:

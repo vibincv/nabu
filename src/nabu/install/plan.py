@@ -195,12 +195,19 @@ def _finish(plan: Plan, facts: Facts, choices: Choices) -> Plan:
     return plan
 
 
+def mac_runtime_dir() -> Path:
+    """Where Nabu unpacks its own Ollama on macOS. The pinned ollama-darwin.tgz holds a bare
+    `ollama` binary next to its libraries (no Ollama.app; listed 2026-11-12), so it gets a
+    folder of its own inside Nabu's app folder (install.sh ROOT)."""
+    return Path.home() / "Library" / "Application Support" / "Nabu App" / "ollama"
+
+
 def runtime_install_command(system: str, dest: Path) -> list[str]:
     if system == "Windows":
         # Inno Setup, PrivilegesRequired=lowest: installs under %LOCALAPPDATA%\Programs\Ollama.
         return [str(dest), "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"]
     if system == "Darwin":
-        return ["tar", "-xzf", str(dest), "-C", str(Path.home() / "Applications")]
+        return ["tar", "-xzf", str(dest), "-C", str(mac_runtime_dir())]
     return ["tar", "--zstd", "-xf", str(dest), "-C", str(Path.home() / ".local")]
 
 

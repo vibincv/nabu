@@ -375,3 +375,81 @@ def test_runtime_download_stays_in_a_user_only_folder(nabu_home, monkeypatch, tm
     monkeypatch.setattr(installer.subprocess, "run", lambda *a, **k: ran.append(a))
     assert installer.install_runtime(plan, swapped, Config()) is False
     assert ran == [] and not (tmp_path / "downloads").exists()
+
+
+# ---- beta start scripts (2026-11-12) ---------------------------------------------------------
+
+def test_macos_runtime_unpacks_into_nabus_folder_and_is_found_there(tmp_path, monkeypatch):
+    # The pinned ollama-darwin.tgz is a bare `ollama` binary plus libraries (no Ollama.app), so
+    # it was unpacked loose into ~/Applications and then looked for as Ollama.app: never found.
+    from nabu.install.plan import mac_runtime_dir, runtime_install_command
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(installer.shutil, "which", lambda name: None)
+    target = mac_runtime_dir()
+    assert target == tmp_path / "Library" / "Application Support" / "Nabu App" / "ollama"
+    assert runtime_install_command("Darwin", Path("ollama-darwin.tgz"))[-2:] == ["-C", str(target)]
+    if not (Path("/Applications") / "Ollama.app").exists():
+        assert installer.runtime_program("Darwin") is None
+    target.mkdir(parents=True)
+    (target / "ollama").write_bytes(b"")
+    assert installer.runtime_program("Darwin") == str(target / "ollama")
+
+
+def test_quick_check_ready_missing_model_and_no_model_mode(monkeypatch, capsys):
+    assert installer.quick_check(Config(model=None)) == installer.EXIT_OK
+    with StubOllama(models=[NINE]) as stub:
+        assert installer.quick_check(Config(model=NINE, model_endpoint=stub.url)) == installer.EXIT_OK
+        assert installer.quick_check(Config(model="qwen3.5:4b", model_endpoint=stub.url)) \
+            == installer.EXIT_SETUP
+    monkeypatch.setattr(installer, "runtime_program", lambda system: None)  # no Ollama at all
+    assert installer.quick_check(Config(model=NINE, model_endpoint="http://127.0.0.1:9")) \
+        == installer.EXIT_SETUP
+    out = capsys.readouterr().out
+    assert "no-model mode" in out and "qwen3.5:4b is not installed" in out
+    assert "does not answer" in out
+
+
+def test_quick_check_starts_a_stopped_runtime(monkeypatch):
+    started = []
+    monkeypatch.setattr(installer, "runtime_program", lambda system: "ollama")
+    monkeypatch.setattr(installer, "start_runtime", started.append)
+    with StubOllama(models=[NINE]) as stub:
+        cfg = Config(model=NINE, model_endpoint=stub.url)
+        # Stopped until start_runtime ran, then answering (the stub serves the model list).
+        monkeypatch.setattr(installer, "wait_for_runtime", lambda c, s=60.0: bool(started))
+        assert installer.quick_check(cfg) == installer.EXIT_OK
+    assert started == ["ollama"]
+
+
+def test_check_flag_runs_only_the_quick_check(nabu_home, monkeypatch):
+    seen = []
+    monkeypatch.setattr(installer, "quick_check", lambda cfg: seen.append(cfg.model) or 3)
+    monkeypatch.setattr(installer, "detect", lambda *a: pytest.fail("full install ran"))
+    assert installer.main(["--check"]) == installer.EXIT_SETUP and seen == [None]
+
+
+@pytest.mark.parametrize("model, expect", [(NINE, [NINE]), (None, [])])
+def test_shortcut_starts_a_stopped_runtime_before_serving(nabu_home, monkeypatch, model, expect):
+    import nabu.cli
+    from nabu import app
+
+    Store(default_paths()).save_config({"model": model})
+    started = []
+    monkeypatch.setattr(app, "running_port", lambda port: None)
+    monkeypatch.setattr(installer, "ensure_runtime", lambda cfg, s: started.append(cfg.model))
+    monkeypatch.setattr(nabu.cli, "main", lambda argv: 0)
+    assert app.main() == 0 and started == expect
+
+
+def test_start_scripts_parse():
+    if shutil.which("sh"):
+        r = subprocess.run(["sh", "-n", str(ROOT / "start-nabu.sh")], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        assert b"\r\n" not in (ROOT / "start-nabu.sh").read_bytes()
+    if sys.platform == "win32":
+        script = ("$e = $null; [System.Management.Automation.Language.Parser]::ParseFile("
+                  f"'{ROOT / 'start-nabu.ps1'}', [ref]$null, [ref]$e) | Out-Null; $e.Count")
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                           capture_output=True, text=True, timeout=60)
+        assert r.stdout.strip() == "0", r.stdout + r.stderr

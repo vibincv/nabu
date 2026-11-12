@@ -111,3 +111,11 @@
   the SAME shell before bisecting.
 - Comparing against HEAD in a git worktree used the venv's editable install, so HEAD's tests
   ran against the modified src. Set PYTHONPATH=<worktree>/src and print `nabu.__file__` first.
+
+## 2026-11-12 PowerShell helper names and console prompts
+- A function named `PS` never ran: `PS` is a built-in alias of Get-Process, and aliases win over
+  functions. Use Verb-Noun names for PowerShell helpers (Start-Child), never 2-letter names.
+- A PowerShell function that runs a native program returns its output with the exit code, and
+  a pipe holds a prompt that has no line end. Run interactive children with
+  `Start-Process -NoNewWindow -Wait -PassThru` and return only `.ExitCode`.
+- A start script parsed and its unit tests passed; only running it end to end found both.
