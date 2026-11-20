@@ -119,3 +119,12 @@
   a pipe holds a prompt that has no line end. Run interactive children with
   `Start-Process -NoNewWindow -Wait -PassThru` and return only `.ExitCode`.
 - A start script parsed and its unit tests passed; only running it end to end found both.
+
+## 2026-11-20 PowerShell scripts ignore unknown options
+- A `param()` block without `[CmdletBinding()]` puts unknown options in `$args` and runs on. I
+  "tested" start-nabu.cmd with `-NoSuchOption`, expecting a binding error; it did a full
+  reinstall and launched Nabu. Every user-facing .ps1 now has `[CmdletBinding()]`.
+- Never run a launcher or installer to test argument handling. Copy the file head up to the end
+  of the param block (`$ast.ParamBlock.Extent.EndOffset`, which keeps the attributes) and add a
+  stub body. `ParamBlock.Extent.Text` alone drops `[CmdletBinding()]`, so a stub built from it
+  tests the old behaviour.

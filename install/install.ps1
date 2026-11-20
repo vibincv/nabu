@@ -16,6 +16,8 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File install.ps1 -DryRun
 #>
+# CmdletBinding: an unknown or mistyped option is an error, not silently ignored.
+[CmdletBinding()]
 param(
   [switch]$DryRun,     # print every detection and command, change nothing (FR-1.8)
   [switch]$Yes,        # answer yes to every download question

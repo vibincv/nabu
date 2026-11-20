@@ -17,6 +17,9 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File start-nabu.ps1 -Setup -Model qwen3.5:4b
 #>
+# CmdletBinding makes an unknown or mistyped option (e.g. "--setup") an error instead of
+# being ignored, which would silently run a full install and launch.
+[CmdletBinding()]
 param(
   [switch]$Setup,       # run the Ollama and model setup again (e.g. to add a model after "no")
   [switch]$Reinstall,   # rebuild and reinstall Nabu even if the clone did not change

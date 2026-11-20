@@ -82,6 +82,9 @@ Found while reviewing (README, install/*, src/nabu/install):
   with their printed label ("ID: ...", "DOB: ..."). Drawn fields store no printed_label, so the
   label-word skip in template read never applies to them. Without a model every value also gets
   a "not translated" chip. Not fixed; owner to rank.
+- CPU-only first read (2026-11-12): second Ollama with CUDA and Vulkan hidden (log: library=cpu),
+  qwen3.5:4b, synthetic SAMPLE STATE card, no template: 190 s and 155 s, 12/12 values right
+  (checked by hand). 28-core CPU, so an ordinary laptop will be slower. In the deck (slides 4, 5, 20).
 
 # M6 Real-document trial (2026-10-30) - decisions made; task 0 approved
 

@@ -44,6 +44,8 @@ cd nabu
 powershell -ExecutionPolicy Bypass -File start-nabu.ps1
 ```
 
+On Windows you can also double-click `start-nabu.cmd` in the cloned folder (or run `start-nabu.cmd -Setup` and so on). It runs the same script with the same options and keeps the window open if something fails.
+
 ```bash
 # macOS (Terminal)
 git clone <repo URL> nabu
@@ -114,7 +116,8 @@ The `nabu` command is not added to your PATH. To run it, use its full path: `%LO
 | `npm ci` or a download fails behind a company network or VPN | Run the first setup on another network, then go back. Proxy setups are not tested yet; report what you saw. Nabu never uses the network while reading |
 | Reads are slow (a minute or more per page) | Expected on a machine without an NVIDIA GPU. Templates make later copies of the same form fast |
 | Korean text is not read | Run `nabu langs pull ko` (full path above) |
-| PowerShell says running scripts is disabled | Start it as shown, with `powershell -ExecutionPolicy Bypass -File start-nabu.ps1` |
+| PowerShell says running scripts is disabled | Start it as shown, with `powershell -ExecutionPolicy Bypass -File start-nabu.ps1`, or double-click `start-nabu.cmd` |
+| `A parameter cannot be found that matches parameter name` | An option is misspelled. Windows options use one dash: `-Setup`, not `--setup` |
 
 When you report a problem, send the terminal output and `nabu doctor --json`. **Never send document images or values.** Notes like "the date field took the name line" are enough.
 

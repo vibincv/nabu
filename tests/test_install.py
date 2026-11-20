@@ -198,6 +198,30 @@ def test_dry_run_changes_nothing_and_repeats_exactly(nabu_home, tmp_path, monkey
     assert [c for c in stub.calls if c[0] != "GET"] == []  # no pull, no delete, no chat
 
 
+def test_unanswered_question_ends_its_line_and_says_no(monkeypatch, capsys):
+    def no_input(prompt):
+        print(prompt, end="")  # noqa: T201 - input() writes the prompt before it hits EOF
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_input)
+    assert installer.ask("Download it?", yes=False) is False
+    assert capsys.readouterr().out == "? Download it? [y/N] no (no answer could be read)\n"
+
+
+def test_declined_lang_pack_is_reported_as_skipped(nabu_home, monkeypatch, capsys):
+    pytest.importorskip("pypdfium2")
+    plan = make_plan(facts(ocr_langs=(), models={}), Choices(model=None))
+    assert "ko" in plan.lang_packs
+    monkeypatch.setattr(installer, "ask", lambda q, yes: False)
+    pulled = []
+    monkeypatch.setattr(installer, "child", lambda a: pulled.append(a) or 0)
+    store = Store(default_paths())
+    installer.execute(plan, facts(ocr_langs=(), models={}), Config(), store, False, None)
+    out = capsys.readouterr().out
+    assert pulled == []
+    assert "Skipped: the ko OCR pack. Add it later with: nabu langs pull ko\n" in out
+
+
 def test_sample_is_bundled_and_reads_without_a_model(nabu_home):  # FR-1.10
     pytest.importorskip("pypdfium2")
     assert installer.sample_bytes().startswith(b"%PDF")

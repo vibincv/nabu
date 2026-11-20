@@ -108,6 +108,8 @@ def ask(question: str, yes: bool) -> bool:
     try:
         return input(f"? {question} [y/N] ").strip().lower() in ("y", "yes")
     except EOFError:
+        # No keyboard input (piped or detached run): end the prompt line and say what we chose.
+        _out("no (no answer could be read)")
         return False
 
 
@@ -377,6 +379,8 @@ def execute(plan, facts, cfg, store, yes: bool, shortcut) -> int:  # type: ignor
             show_command(step.command)
             if child(["nabu", "langs", "pull", lang]) != 0:
                 ok = False
+        else:
+            _out(f"Skipped: the {lang} OCR pack. Add it later with: nabu langs pull {lang}")
 
     data = store.config_data()
     if data.get("model") != model:
