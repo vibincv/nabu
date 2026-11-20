@@ -128,3 +128,11 @@
   of the param block (`$ast.ParamBlock.Extent.EndOffset`, which keeps the attributes) and add a
   stub body. `ParamBlock.Extent.Text` alone drops `[CmdletBinding()]`, so a stub built from it
   tests the old behaviour.
+
+## 2026-11-20 Recording the how-to video
+- The first client to load the review window claims it, so a `curl` "is it up?" check took the
+  window and the recorder's browser was locked out. Wait for the server's "review window at"
+  log line (or a plain TCP connect), never an HTTP GET, before the real browser opens it.
+- Overlays on the review window must be popovers, re-shown after each dialog opens: a modal
+  dialog sits in the top layer above any z-index. `scrollIntoViewIfNeeded` leaves a target at
+  the panel's edge, under a bottom caption; scroll it to `block: "center"` instead.
