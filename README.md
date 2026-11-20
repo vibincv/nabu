@@ -2,7 +2,9 @@
 
 Nabu reads documents on your own machine. You check every field it finds and correct anything wrong. It then gives you a JSON file. Nothing leaves the machine, and Nabu never stores the values it reads.
 
-> **Status:** M5 product page. Done so far: the reading engine (M1), the review window and JSON output (M2), templates (M3), the per-user installer with model bootstrap (M4), and the product page with a clickable demo (M5). Windows is tested end to end. `install.sh` (Linux, macOS) is covered by dry-run tests only (see [Roadmap](#roadmap)).
+> **Status:** team beta, with the M6 real-document trial in progress. Done so far: the reading engine (M1), the review window and JSON output (M2), templates (M3), the per-user installer with model bootstrap (M4), the product page with a clickable demo (M5), and one start script for the team beta. Windows is tested end to end. macOS and Linux are covered by dry-run tests only (see [Roadmap](#roadmap)).
+>
+> New to Nabu? Read the [walkthrough](docs/walkthrough.md): what it does, with screenshots of every step.
 >
 > "Nabu" is a codename until the trademark search is done (FRD Q10).
 
@@ -114,7 +116,7 @@ The `nabu` command is not added to your PATH. To run it, use its full path: `%LO
 | `Ollama does not answer` | Start the Ollama app yourself, wait a few seconds, and run the script again. If Ollama is not installed, the script offers to install it |
 | `does not match the digest shipped with Nabu; it was removed` | The model online changed since this Nabu version pinned it. Tell the Nabu owner; meanwhile Nabu works in no-model mode |
 | `npm ci` or a download fails behind a company network or VPN | Run the first setup on another network, then go back. Proxy setups are not tested yet; report what you saw. Nabu never uses the network while reading |
-| Reads are slow (a minute or more per page) | Expected on a machine without an NVIDIA GPU. Templates make later copies of the same form fast |
+| The first read of a new form is slow | Expected: about a minute with an NVIDIA GPU, about 3 minutes or more on CPU only. Save a template; later copies of the same form take seconds |
 | Korean text is not read | Run `nabu langs pull ko` (full path above) |
 | PowerShell says running scripts is disabled | Start it as shown, with `powershell -ExecutionPolicy Bypass -File start-nabu.ps1`, or double-click `start-nabu.cmd` |
 | `A parameter cannot be found that matches parameter name` | An option is misspelled. Windows options use one dash: `-Setup`, not `--setup` |
@@ -125,6 +127,8 @@ When you report a problem, send the terminal output and `nabu doctor --json`. **
 
 - Windows is tested end to end. **macOS is not tested yet**: the first teammate on a Mac, please report how the first start went. Linux uses `start-nabu.sh` too but is untested.
 - Ollama's own installer step on a machine without Ollama is being checked on a clean laptop.
+- A field box on the wrong text can't be dragged or resized yet. Remove the field and draw it again with **Add field**.
+- Hand-drawn fields can read the printed label into the value (for example `ID: 123` instead of `123`). Check those values before Verify.
 
 ## Install (users)
 
@@ -286,6 +290,7 @@ install/            install.ps1, install.sh, build_release.py (release folder), 
 ui/                 Vite + TypeScript review UI; builds into src/nabu/server/ui_dist (demo mode: dist/site/demo)
 site/               M5 product page (static HTML + CSS)
 fixtures/           synthetic only, never real documents; demo/ is the M5 specimen licence
+docs/               team walkthrough (walkthrough.md) and its screenshots, synthetic cards only
 tests/              offline; tests/stub_ollama.py mimics the runtime
 ```
 
@@ -336,6 +341,8 @@ It reports JSON validity, label recall, value accuracy, seconds per page and whi
 | M3 | Templates: linking, save dialog, template manager, translation memory |
 | M4 | Installer |
 | M5 | Static demo page |
+| Beta | One start script for the team (`start-nabu.cmd` / `.ps1` / `.sh`): check, install, Ollama and model, launch |
+| M6 | Real-document trial (in progress; value-free notes in `tasks/m6-trial.md`) |
 
 ## Licence
 
